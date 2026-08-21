@@ -16,6 +16,7 @@
   import { AuthModalShell } from "$lib/components/auth";
   import { DownloadBar, UpdateToast } from "$lib/components/status";
   import { SITE } from "$lib/config/site";
+  import { siteJsonLdGraph } from "$lib/seo/site-schema";
   import { startAnalytics } from "$lib/boot/analytics";
   import { startCrashReporting } from "$lib/boot/crash-reporting";
   import { deLocalizeUrl } from "$lib/paraglide/runtime";
@@ -111,32 +112,7 @@
     if (firstPaintComplete) ensureOfflineEngine(location.pathname);
   });
 
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "WebSite",
-        "@id": `${SITE.url}/#website`,
-        name: SITE.name,
-        url: SITE.url,
-        publisher: { "@id": `${SITE.url}/#organization` },
-      },
-      {
-        "@type": "Organization",
-        "@id": `${SITE.url}/#organization`,
-        name: SITE.name,
-        url: SITE.url,
-        logo: {
-          "@type": "ImageObject",
-          url: `${SITE.url}/logo.png`,
-          width: 512,
-          height: 512,
-        },
-        sameAs: [SITE.github],
-      },
-    ],
-  };
-  const jsonLdText = JSON.stringify(jsonLd);
+  const jsonLdText = JSON.stringify(siteJsonLdGraph());
 </script>
 
 <svelte:head>

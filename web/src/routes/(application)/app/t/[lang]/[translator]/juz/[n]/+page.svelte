@@ -1,7 +1,9 @@
 <script lang="ts">
   import { page } from "$app/state";
+  import { SITE } from "$lib/config/site";
   import { Seo } from "$lib/components";
   import { juzPathFor, type SurahRouteContext } from "$lib/data/quran";
+  import { RangeKind, RANGE_COUNTS } from "$lib/data/quran-data";
   import { getReaderUiCopy } from "$lib/i18n/reader-copy";
   import { readerHrefFor } from "$lib/i18n/reader";
   import ReaderShell from "../../../../../_reader/ReaderShell.svelte";
@@ -27,7 +29,20 @@
   );
   const contentLanguage = $derived(page.params.lang ?? "en");
   const pending = $derived(data.ayahs.length === 0);
+  const prevHref = $derived(data.index > 1 ? juzPathFor(ctx, data.index - 1) : null);
+  const nextHref = $derived(
+    data.index < RANGE_COUNTS[RangeKind.Juz] ? juzPathFor(ctx, data.index + 1) : null,
+  );
 </script>
+
+<svelte:head>
+  {#if prevHref}
+    <link rel="prev" href={`${SITE.url}${readerHrefFor(copy.locale, prevHref)}`} />
+  {/if}
+  {#if nextHref}
+    <link rel="next" href={`${SITE.url}${readerHrefFor(copy.locale, nextHref)}`} />
+  {/if}
+</svelte:head>
 
 <Seo
   path={canonicalPublicPath}

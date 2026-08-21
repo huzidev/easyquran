@@ -8,6 +8,13 @@ import {
 } from "node:http";
 import { join } from "node:path";
 
+import {
+  mdSiblingPathFor,
+  negotiateMarkdownPath,
+  notAcceptableBody,
+  varyWithAccept,
+} from "./src/lib/accept-parse";
+
 // Emitted by adapter-node at build time, so it carries no types of its own.
 import { handler } from "./build/handler.js";
 
@@ -133,6 +140,31 @@ function getHeaderString(response: ServerResponse, name: string): string | undef
 // sets Cache-Control on immutable client assets — those are respected, only
 // missing headers are filled in. Prerendered HTML (sirv, pre-hooks) gets the
 // script-hash CSP; everything else gets the nonce-free static policy.
+// applyHeaders runs before the wrapped writeHead re-applies sirv's argsHeaders,
+// so a merged value must ALSO be written back into argsHeaders in place or the
+// inner layer's copy clobbers it on the real write.
+function mergeHeaderInPlace(
+  response: ServerResponse,
+  argsHeaders: OutgoingHttpHeaders | undefined,
+  name: string,
+  merge: (existing: string) => string,
+): void {
+  const current = getHeaderString(response, name);
+  const argValue = headerArg(argsHeaders, name);
+  if (current === undefined && argValue === undefined) {
+    response.setHeader(name, merge(""));
+    return;
+  }
+  const merged = merge(current ?? argValue ?? "");
+  response.setHeader(name, merged);
+  if (argsHeaders !== undefined && argValue !== undefined) {
+    for (const key of Object.keys(argsHeaders)) {
+      if (key.toLowerCase() === name) delete argsHeaders[key];
+    }
+    argsHeaders[name] = merged;
+  }
+}
+
 function applyHeaders(
   response: ServerResponse,
   pathname: string,
@@ -147,15 +179,22 @@ function applyHeaders(
   setIfAbsent("Referrer-Policy", "strict-origin-when-cross-origin");
   setIfAbsent("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   setIfAbsent("Strict-Transport-Security", HSTS);
+  const contentType =
+    headerArg(argsHeaders, "content-type") ?? getHeaderString(response, "content-type");
+  const isHtml = contentType !== undefined && contentType.includes("text/html");
   if (
     getHeaderString(response, "content-security-policy") === undefined &&
     headerArg(argsHeaders, "content-security-policy") === undefined
   ) {
-    const contentType =
-      headerArg(argsHeaders, "content-type") ?? getHeaderString(response, "content-type");
-    const isHtml = contentType !== undefined && contentType.includes("text/html");
     const hashes = isHtml ? pageScriptHashes.get(pathname) : undefined;
     response.setHeader("Content-Security-Policy", buildCsp(hashes ?? []));
+  }
+  const mdPath = mdSiblingPathFor(pathname);
+  if (isHtml && mdPath !== null) {
+    const alternate = `<${mdPath}>; rel="alternate"; type="text/markdown"`;
+    mergeHeaderInPlace(response, argsHeaders, "Link", (existing) =>
+      existing ? `${existing}, ${alternate}` : alternate,
+    );
   }
   if (
     headerArg(argsHeaders, "cache-control") === undefined &&
@@ -175,6 +214,9 @@ function applyHeaders(
   }
   if (pathname.endsWith(".md") || pathname.endsWith(".txt")) {
     setIfAbsent("X-Robots-Tag", "noindex, follow");
+  }
+  if (mdPath !== null || pathname.endsWith(".md") || pathname.endsWith(".txt") || statusCode === 404) {
+    mergeHeaderInPlace(response, argsHeaders, "Vary", varyWithAccept);
   }
 }
 
@@ -213,8 +255,41 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
     return (end as (...forwarded: EndArgs) => ServerResponse)(...args);
   } as ServerResponse["end"];
 
-  // SAFETY: adapter-node emits handler.js without types; RequestHandler spells its real signature.
-  Promise.resolve((handler as RequestHandler)(request, response)).catch((cause: unknown) => {
+  void routeNegotiated(request, response, decodedPath);
+});
+
+// Prerendered pages are served by sirv inside the adapter handler BEFORE hooks
+// run, so Accept negotiation for the md-sibling marketing pages has to happen
+// here — one layer above the handler — reading the prerendered .md directly.
+async function routeNegotiated(
+  request: IncomingMessage,
+  response: ServerResponse,
+  decodedPath: string,
+): Promise<void> {
+  if (request.method === "GET") {
+    const negotiation = negotiateMarkdownPath(decodedPath, request.headers.accept ?? null);
+    if (negotiation.kind === "not-acceptable") {
+      response.statusCode = 406;
+      response.setHeader("Content-Type", "text/plain; charset=utf-8");
+      response.setHeader("Cache-Control", "no-store");
+      response.setHeader("Vary", "Accept");
+      response.end(notAcceptableBody(negotiation.accept));
+      return;
+    }
+    if (negotiation.kind === "markdown") {
+      const body = await readFile(join(prerenderedDir, negotiation.mdPath)).catch(() => null);
+      if (body !== null) {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        response.end(body);
+        return;
+      }
+    }
+  }
+  try {
+    // SAFETY: adapter-node emits handler.js without types; RequestHandler spells its real signature.
+    await (handler as RequestHandler)(request, response);
+  } catch (cause: unknown) {
     console.error("[server] unhandled request error", cause);
     if (response.headersSent) {
       response.destroy();
@@ -223,8 +298,8 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
     response.statusCode = 500;
     applyHeaders(response, decodedPath, 500);
     response.end("Internal Server Error");
-  });
-});
+  }
+}
 
 server.listen(port, host, () => {
   console.log(`[server] listening on http://${host}:${port}`);

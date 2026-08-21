@@ -4,6 +4,13 @@ import { building } from "$app/environment";
 import { QURAN } from "$lib/config/site";
 import { isUiLocale, uiDirection, type UiDirection, type UiLocale } from "$lib/i18n/locales";
 import { paraglideMiddleware } from "$lib/paraglide/server";
+import {
+  agentNotFoundMarkdown,
+  appendVaryAccept,
+  mdSiblingRequest,
+  notAcceptableBody,
+  preferredType,
+} from "$lib/server/markdown-negotiation";
 import { diskCacheKey, getCachedHtml, setCachedHtml } from "$lib/server/quran-disk-cache";
 import {
   localizedReaderLocale,
@@ -14,6 +21,8 @@ import {
 import type { Handle, RequestEvent } from "@sveltejs/kit";
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
+
+const NEGOTIABLE_TYPES = ["text/html", "text/markdown"];
 
 const packPattern = /^\/offline\/pack\.[A-Za-z0-9_-]+\.json$/u;
 
@@ -122,8 +131,12 @@ export function applyHeaders(
   } else {
     response.headers.set("Cache-Control", "no-cache");
   }
-  if (pathname.endsWith(".md") || pathname.endsWith(".txt")) {
+  const textVariant = pathname.endsWith(".md") || pathname.endsWith(".txt");
+  if (textVariant) {
     response.headers.set("X-Robots-Tag", "noindex, follow");
+  }
+  if (textVariant || mdSiblingRequest(pathname) !== null || response.status === 404) {
+    appendVaryAccept(response.headers);
   }
 }
 
@@ -185,11 +198,37 @@ function noncanonicalLocalizedReaderRedirect(event: RequestEvent): Response | nu
   });
 }
 
-function notFound(): Response {
+function notFound(event: RequestEvent): Response {
+  if (prefersMarkdown(event)) {
+    return new Response(agentNotFoundMarkdown(), {
+      status: 404,
+      headers: { "content-type": "text/markdown; charset=utf-8", vary: "Accept" },
+    });
+  }
   return new Response("Not found", {
     status: 404,
     headers: { "content-type": "text/plain; charset=utf-8" },
   });
+}
+
+function notAcceptable(accept: string): Response {
+  return new Response(notAcceptableBody(accept), {
+    status: 406,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+      vary: "Accept",
+    },
+  });
+}
+
+function prefersMarkdown(event: RequestEvent): boolean {
+  return (
+    event.request.method === "GET" &&
+    !event.isDataRequest &&
+    !event.isSubRequest &&
+    preferredType(event.request.headers.get("accept"), NEGOTIABLE_TYPES) === "text/markdown"
+  );
 }
 
 async function resolveRequest(
@@ -255,8 +294,40 @@ function isLocalizedMarketingPath(pathname: string): boolean {
 export const handle: Handle = async ({ event, resolve }) => {
   const { pathname } = event.url;
   const requestHasCookie = !!event.request.headers.get("cookie");
-  let response = legacyReaderRedirect(event);
+  const mdSibling = mdSiblingRequest(pathname);
+  let response: Response | null = null;
   let nonce: string | undefined;
+  let negotiated = false;
+
+  if (
+    mdSibling !== null &&
+    event.request.method === "GET" &&
+    !event.isDataRequest &&
+    !event.isSubRequest
+  ) {
+    const accept = event.request.headers.get("accept");
+    const chosen = preferredType(accept, NEGOTIABLE_TYPES);
+    if (accept !== null && chosen === null) {
+      response = notAcceptable(accept);
+      negotiated = true;
+    } else if (chosen === "text/markdown") {
+      const md = await event.fetch(mdSibling.mdPath);
+      if (md.ok) {
+        response = new Response(await md.text(), {
+          headers: {
+            "content-type": "text/markdown; charset=utf-8",
+            "x-robots-tag": "noindex, follow",
+            vary: "Accept",
+          },
+        });
+        negotiated = true;
+      }
+    }
+  }
+
+  if (!response) {
+    response = legacyReaderRedirect(event);
+  }
 
   if (!response) {
     const readerLocale = localizedReaderLocale(pathname);
@@ -265,11 +336,11 @@ export const handle: Handle = async ({ event, resolve }) => {
     if (noncanonicalRedirect) {
       response = noncanonicalRedirect;
     } else if (readerLocale && !parseReaderRoute(event.route.id, event.params)) {
-      response = notFound();
+      response = notFound(event);
     } else if (useI18n) {
       const resolved: NonceHolder = {};
       response = await paraglideMiddleware(event.request, async ({ request, locale }) => {
-        if (!isUiLocale(locale)) return notFound();
+        if (!isUiLocale(locale)) return notFound(event);
         event.request = request;
         const readerRoute = readerLocale ? parseReaderRoute(event.route.id, event.params) : null;
         const out = await resolveRequest(event, resolve, locale, readerRoute, requestHasCookie);
@@ -287,6 +358,26 @@ export const handle: Handle = async ({ event, resolve }) => {
       );
       response = resolved.response;
       nonce = resolved.nonce;
+    }
+  }
+
+  if (
+    response.status === 404 &&
+    !(response.headers.get("content-type") ?? "").includes("text/markdown") &&
+    prefersMarkdown(event)
+  ) {
+    response = new Response(agentNotFoundMarkdown(), {
+      status: 404,
+      headers: { "content-type": "text/markdown; charset=utf-8", vary: "Accept" },
+    });
+  }
+
+  if (mdSibling !== null && !negotiated) {
+    appendVaryAccept(response.headers);
+    if ((response.headers.get("content-type") ?? "").includes("text/html")) {
+      const link = `<${mdSibling.mdPath}>; rel="alternate"; type="text/markdown"`;
+      const existingLink = response.headers.get("link");
+      response.headers.set("Link", existingLink ? `${existingLink}, ${link}` : link);
     }
   }
 

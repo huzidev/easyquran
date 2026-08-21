@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { SITE } from "$lib/config/site";
   import { Seo } from "$lib/components";
   import { globalPagePathFor, type SurahRouteContext } from "$lib/data/quran";
+  import { RangeKind, RANGE_COUNTS } from "$lib/data/quran-data";
   import { getReaderUiCopy } from "$lib/i18n/reader-copy";
   import { readerHrefFor } from "$lib/i18n/reader";
   import ReaderShell from "../../_reader/ReaderShell.svelte";
@@ -15,7 +17,24 @@
   const seoDescription = $derived(
     copy.seo.pageDescription(data.index, data.first, data.last),
   );
+  const prevHref = $derived(
+    data.index > 1 ? globalPagePathFor(arabicCtx, data.index - 1) : null,
+  );
+  const nextHref = $derived(
+    data.index < RANGE_COUNTS[RangeKind.Page]
+      ? globalPagePathFor(arabicCtx, data.index + 1)
+      : null,
+  );
 </script>
+
+<svelte:head>
+  {#if prevHref}
+    <link rel="prev" href={`${SITE.url}${readerHrefFor(copy.locale, prevHref)}`} />
+  {/if}
+  {#if nextHref}
+    <link rel="next" href={`${SITE.url}${readerHrefFor(copy.locale, nextHref)}`} />
+  {/if}
+</svelte:head>
 
 <Seo
   path={canonicalPath}

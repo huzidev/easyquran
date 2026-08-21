@@ -1,4 +1,5 @@
 import { env } from "$env/dynamic/private";
+import { SITE } from "$lib/config/site";
 import { fetchWithTimeout } from "$lib/quran/fetch";
 import type { OwnerPublic } from "$lib/types/owner";
 
@@ -24,7 +25,7 @@ const FALLBACK_PROFILE: OwnerProfile = {
   title: "",
   tagline: "",
   yearsOfExperience: 0,
-  email: "hmziqrs@gmail.com",
+  email: SITE.contactEmail,
   websites: { alternative: "", portfolio: "https://hmziq.rs", cv: "" },
   social: { github: "hmziqrs", linkedin: "hmziqrs", twitter: "hmziqrs", instagram: "hmziqrs" },
 };

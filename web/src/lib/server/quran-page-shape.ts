@@ -1,4 +1,4 @@
-import { surahLocalPagePathFor } from "$lib/data/quran";
+import { surahLocalPagePathFor, surahPathFor } from "$lib/data/quran";
 import { RangeKind, SURAH_COUNT } from "$lib/data/quran-data";
 import type {
   Ayah,
@@ -22,6 +22,8 @@ export interface SurahRouteNav {
   nextPage: SurahLocalPageLink | null;
   previousSurah: SurahLink | null;
   nextSurah: SurahLink | null;
+  readingPreviousHref: `/app/${string}` | null;
+  readingNextHref: `/app/${string}` | null;
 }
 
 /** Neighbouring Surah, or null past either end of the mushaf. */
@@ -41,6 +43,28 @@ function pageLink(
   return { localPage, href: surahLocalPagePathFor(ctx, surah, localPage) };
 }
 
+function readingPreviousHref(
+  ctx: SurahRouteContext,
+  surah: CatalogEntry,
+  localPage: number,
+): `/app/${string}` | null {
+  if (localPage > 1) return surahLocalPagePathFor(ctx, surah, localPage - 1);
+  const previous = surahLinkAt(surah.num - 1);
+  if (!previous) return null;
+  return surahLocalPagePathFor(ctx, previous, QURAN_DATA.surahLocalPageCount(previous.num));
+}
+
+function readingNextHref(
+  ctx: SurahRouteContext,
+  surah: CatalogEntry,
+  localPage: number,
+  pageCount: number,
+): `/app/${string}` | null {
+  if (localPage < pageCount) return surahLocalPagePathFor(ctx, surah, localPage + 1);
+  const next = surahLinkAt(surah.num + 1);
+  return next ? surahPathFor(ctx, next) : null;
+}
+
 export function surahRouteNav(
   ctx: SurahRouteContext,
   surah: CatalogEntry,
@@ -52,6 +76,8 @@ export function surahRouteNav(
     nextPage: pageLink(ctx, surah, localPage + 1, pageCount),
     previousSurah: surahLinkAt(surah.num - 1),
     nextSurah: surahLinkAt(surah.num + 1),
+    readingPreviousHref: readingPreviousHref(ctx, surah, localPage),
+    readingNextHref: readingNextHref(ctx, surah, localPage, pageCount),
   };
 }
 

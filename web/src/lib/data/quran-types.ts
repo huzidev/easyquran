@@ -234,6 +234,8 @@ export interface SurahRouteData {
   nextPage: SurahLocalPageLink | null;
   previousSurah: SurahLink | null;
   nextSurah: SurahLink | null;
+  readingPreviousHref: `/app/${string}` | null;
+  readingNextHref: `/app/${string}` | null;
 }
 
 export type SurahRouteContext =

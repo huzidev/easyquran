@@ -175,6 +175,15 @@
   });
 </script>
 
+<svelte:head>
+  {#if data.readingPreviousHref}
+    <link rel="prev" href={`${SITE.url}${readerHrefFor(copy.locale, data.readingPreviousHref)}`} />
+  {/if}
+  {#if data.readingNextHref}
+    <link rel="next" href={`${SITE.url}${readerHrefFor(copy.locale, data.readingNextHref)}`} />
+  {/if}
+</svelte:head>
+
 <Seo
   path={canonicalPublicPath}
   title={seoTitle}
