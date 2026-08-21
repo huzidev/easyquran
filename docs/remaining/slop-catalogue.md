@@ -15,31 +15,40 @@ Conventions: LOC figures are estimates. Line numbers were accurate at audit time
 
 ### S01 — Public surfaces still speak ruxlog
 
-The API is a ruxlog clone and three spots leak that identity:
+The API is a ruxlog clone (admitted at `rust/backend/api/AGENTS.md:3`) and five spots leak that
+identity:
 
-- `rust/backend/api/src/router.rs` (robots handler, ~line 222): public `/robots.txt` advertises
-  `ruxlog.com`.
+- `rust/backend/api/src/router.rs:222-230`: public `/robots.txt` advertises
+  `Sitemap: https://ruxlog.com/sitemap.xml`.
 - `rust/backend/api/src/config/settings.rs:219`: `SITE_NAME` defaults to `"Ruxlog"` when the env
-  var is unset.
-- `rust/backend/api/src/utils/cors.rs` (`dev_default_origins`): embeds a specific developer's LAN
-  IPs as dev CORS defaults. The one-line test at ~line 532 rides along with the fix.
+  var is unset; `settings.rs:221` in the same fn defaults `consumer_site_url` to
+  `https://ruxlog.com`.
+- `rust/backend/api/src/modules/auth_v1/controller.rs:495`: "Ruxlog" hardcoded as the TOTP issuer
+  in the otpauth URL users see when enabling 2FA — live module, most user-visible of the five.
+- `rust/backend/api/src/utils/cors.rs:159-182` (`dev_default_origins`): embeds a specific
+  developer's LAN IPs (192.168.0.101, 192.168.0.23) as dev CORS defaults.
 
-Fix: replace with easyquran identity (or neutral values), remove the LAN IPs. ~60 LOC touched,
-risk low. Nothing in docs or guards pins these values.
+Fix: replace with easyquran identity (or neutral values), remove the LAN IPs. Two in-file unit
+tests pin the current values and must ride along: `cors.rs:519-538`
+(`build_non_production_includes_dev_defaults_and_lan`, asserts the LAN IP at :532) and
+`settings.rs:846-858` (`site_settings_defaults`, asserts `"Ruxlog"` and `ruxlog.com` at :857-858).
+Risk low. No named machine guard pins these values.
 
 ## Web dead code
 
 ### S02 — Dead vendored shadcn-svelte sidebar family (~390 LOC)
 
-`web/src/lib/components/ui/sidebar/` exports ~30 symbols; the only three consumers
+`web/src/lib/components/ui/sidebar/` exports 24 distinct symbols (23 components + `useSidebar`,
+under 47 export names including aliases); the only three consumers
 (`_reader/Sidebar.svelte`, `_reader/ReaderShell.svelte`, `_reader/TranslationPicker.svelte`) import
 12. Dead: `SidebarGroupAction`, `SidebarGroupLabel`, `SidebarInput`, `SidebarMenuAction`,
 `SidebarMenuBadge`, `SidebarMenuSkeleton`, `SidebarMenuSub`, `SidebarMenuSubButton`,
-`SidebarMenuSubItem`, `SidebarRail`, `SidebarSeparator` (11 files + barrel trims, ~390 LOC).
-Internal-import map verified: no live sidebar file imports a dead one (`skeleton.svelte`'s only
-importer is the dead `sidebar-menu-skeleton.svelte`; `separator.svelte`'s only importer is the dead
-`sidebar-separator.svelte`). `web/components.json` confirms shadcn-svelte is vendored/CLI-re-addable,
-so deletion loses nothing.
+`SidebarMenuSubItem`, `SidebarRail`, `SidebarSeparator` (11 files + barrel trims, ~356 LOC).
+Internal-import map verified: no live sidebar file imports a dead one. Deleting the 11 files also
+orphans `ui/skeleton/` and `ui/separator/` — their sole importers anywhere are the dead
+`sidebar-menu-skeleton.svelte` and `sidebar-separator.svelte` — so those two dirs (barrel +
+component each, ~30 LOC) are part of the same unit delete, bringing the total to ~386.
+`web/components.json` confirms shadcn-svelte is vendored/CLI-re-addable, so deletion loses nothing.
 
 ### S03 — Dead first-party components: Chip, Pulse, StatusDot, Section (~87 LOC)
 
@@ -63,14 +72,26 @@ usage (`Sheet.Description`, `Cmd.Separator`) too.
 have zero references. (An earlier audit round also claimed `stores/reader-context.svelte.ts` here —
 that file does not exist; claim dropped.)
 
-### S06 — reader-copy.ts: three fully dead copy groups + strays (~95 LOC)
+### S06 — reader-copy.ts: three fully dead copy groups + strays (39 keys, ~110 LOC)
 
-~31 resolved keys with zero consumers repo-wide: the entire `offline` group (label, packReady,
-preparingPack, downloadingPack, stagingPack, downloadFailed, download, remove, working, routes,
-savedOn, storage, preparingQuran), the entire `notifications` group (title, enable, disable,
-blocked, unsupported, unavailable), and strays. Deleting these removes ~1/4 of the resolver body
-in `web/src/lib/i18n/reader-copy.ts` — do this before judging any further resolver refactor (see
-"Refuted / intentional").
+39 resolved keys with zero consumers repo-wide (verified by key-name grep; `copy.offline`,
+`copy.notifications`, `copy.update` appear nowhere, and only `copy.nav`/`copy.footer` are ever
+passed whole):
+
+- the entire `offline` group (13 keys: label, packReady, preparingPack, downloadingPack,
+  stagingPack, downloadFailed, download, remove, working, routes, savedOn, storage,
+  preparingQuran) — `reader-copy.ts:275-289` interface / `:516-530` resolver;
+- the entire `notifications` group (14 keys: title, enable, disable, blocked, unsupported,
+  unavailable + checking, browserUnsupported, blockedDetail, on, offUpdates, off, dismiss, open)
+  — `:290-305` / `:531-546`;
+- the entire `update` group (ready, reloadDescription, reloadOpenTabs, dismiss) — `:306-311` /
+  `:547-552`;
+- 8 strays: `sidebar.navigationDescription`, `sidebar.pageAbbreviation`, `sidebar.juzLabel`,
+  `range.juz`, `range.page`, `range.pageAbbreviation`, `nav.sidebarTitle` (the neighboring
+  `sidebarToggle` IS live), `seo.quran`.
+
+Deleting these removes ~1/4 of the resolver body in `web/src/lib/i18n/reader-copy.ts` — do this
+before judging any further resolver refactor (see "Refuted / intentional").
 
 ### S07 — Dead storage exports: `removeJSON`, `asNullableObject` (~14 LOC)
 
@@ -125,8 +146,16 @@ Only the optional error-field names differ across the provider modules. One shar
 
 ### R04 — reqwest client builder duplicated 7×; streaming size-capped body reader duplicated 4× (~130 LOC)
 
-Consolidation side benefit: Google's JWKS fetch (`google_auth_v1/service.rs:308`, `resp.bytes()`)
-is the one provider HTTP read WITHOUT a streaming size cap — the shared capped reader closes it.
+Builder sites: `state.rs:17`, `services/oauth/mod.rs:24`, `google_auth_v1/controller.rs:40`,
+`github_auth_v1/controller.rs:43`, `facebook_auth_v1/controller.rs:41`,
+`google_auth_v1/service.rs:290`, `apple_auth_v1/service.rs:321` (same tuning family:
+redirect-none + 5s connect + 15s total + 30s pool idle). Capped-reader sites:
+`google_auth_v1/controller.rs:460-481`, `github_auth_v1/controller.rs:454-475`,
+`facebook_auth_v1/controller.rs:380-401`, `apple_auth_v1/service.rs:365-387` (all 64KB caps).
+Consolidation side benefit: TWO provider reads lack a streaming cap — Google's JWKS fetch
+(`google_auth_v1/service.rs:308`, `resp.bytes()`) and Apple's token-exchange response
+(`apple_auth_v1/service.rs:214,221`, `resp.text()`/`resp.json()`, bounded only by the 15s client
+timeout). The shared capped reader closes both.
 
 ### R05 — JWKS fetch+cache duplicated between Google and Apple services (~50 LOC)
 
@@ -146,39 +175,60 @@ parameterized suite.
 The ~30 non-test `std::env::var(X).unwrap_or_else(|_| "...".to_string())` sites collapse behind a
 `var_or(key, default)` helper.
 
-### R08 — router.rs rate-limit wiring: 16 repetitive `.nest(...).layer(rate_limit_layer(...))` sites (~35 LOC)
+### R08 — router.rs rate-limit wiring: 16 sites, 14 of them nest-shaped (~55 LOC)
 
-`rust/backend/api/src/router.rs` — table-driven nest+limit pairs. Keep the per-route bucket
-semantics (PathKey::Matched) exactly; the rate-limit middleware test pins them.
+`rust/backend/api/src/router.rs` has 16 `rate_limit::rate_limit_layer` sites; 14 match the
+`.nest(...).layer(rate_limit_layer(&state, N, 60))` shape and collapse into a table. The other 2
+are route-level (`/sitemap.xml` at :55, `/csrf/v1/generate` at :59) — leave hand-rolled or give
+the table a second row shape. Keep the per-route bucket semantics (`PathKey::Matched`,
+`middlewares/rate_limit.rs:24`) exactly; the
+`nest_level_limiter_keys_buckets_per_matched_route` test at `rate_limit.rs:393` pins them.
 
 ### R09 — TranslationPool: verbatim cold-build init closure duplicated between get_or_build and warm (~70 LOC)
 
 `rust/backend/api/src/quran/translation_pool.rs` (1018 LOC), plus 3 copies of a related helper
 nearby.
 
-### R10 — Dead scaffolding surface in rux-auth and rux-request-gate (~140 LOC)
+### R10 — Dead scaffolding surface in rux-auth and rux-request-gate (~130 LOC)
 
-No-op `AuthGuard` layer and the unused gate `IpSource` family. **Keep `NoHooks`** — abuse tests
-construct it (`services/abuse.rs:216,225,230`).
+Two pieces: (1) the no-op `AuthGuard` layer (`crates/rux-auth/src/middleware/guard.rs:62-70`
+discards its requirements; `AuthGuardLayer`/`auth_guard()`/`auth_guard_fn` have zero constructors)
+— **keep `check_requirements` in the same file (:77-132), it is live** (used by
+`src/middlewares/auth_guard.rs` and `admin_bans_v1/controller.rs`); delete the layer, not the
+file. (2) the unused gate `IpSource` family (`crates/rux-request-gate/src/ip.rs`: `IpSource`,
+`ClientIpSource`, `FnIpSource` + 3 tests) — the live `IdentitySource` family is a different,
+kept abstraction. Name-collision trap: `ClientIpSource` also exists as the live
+`axum_client_ip` type used in `config/settings.rs` and `middlewares/` — greps must be
+import-qualified. **Keep `NoHooks`** — abuse tests construct it
+(`crates/rux-request-gate/src/abuse.rs:216,225,230`).
 
-### R11 — Small dead/dup cluster in utils (~60 LOC)
+### R11 — Small dead/dup cluster in config/telemetry (~21 LOC)
 
-`parse_env_u64` identical to `env_u64`; telemetry's `env_u64` near-copy; 3 leftover DEBUG
-endpoints.
+`parse_env_u64` (`src/config/env.rs:45-50`) is identical to `env_u64` (`env.rs:17-22`; only
+callers of the former are `main.rs:41,42`); `src/utils/telemetry.rs:36-41` carries an `env_u64`
+near-copy; and `telemetry.rs` has 3 leftover `DEBUG:` `eprintln!` statements (~:121-124, 175-178,
+207 — debug prints, not HTTP endpoints).
 
 ## Web duplication
 
-### W01 — Response-failure classification ladder duplicated 9× in flows (~80 LOC)
+### W01 — Response-failure classification ladder duplicated 10× (~80 LOC)
 
 The same `status === 0 → network / 403-or-verified-only → classifyAuthError` ladder is hand-rolled
-at `web/src/lib/auth/flows.svelte.ts:388-399, 424-441, 664-672, 714-727, 759-774, 498-512,
-537-548, 590-601` and `passkey-flow.svelte.ts:291-298, 343-350` (~117 ladder lines total).
-One helper. Constraint: preserve `ForgotPassword.request`'s anti-enumeration else-branch
-(`flows.svelte.ts:508-511`) as an explicit option.
+at 8 sites in `web/src/lib/auth/flows.svelte.ts` (`:388-399` resend, `:424-441` verify,
+`:498-512` forgot-request, `:537-548` verifyCode, `:590-601` reset, `:664-672` 2FA setup,
+`:714-727` 2FA verify, `:759-774` 2FA disable) and 2 in `passkey-flow.svelte.ts`
+(`:291-298`, `:343-350`) — ~124 ladder lines total. One helper. Constraint: preserve
+`ForgotPassword.request`'s anti-enumeration else-branch (`flows.svelte.ts:508-511`) as an
+explicit option. (`LoginFlow`/`RegisterFlow` already use the extracted `credentialFailure`
+helper at `flows.svelte.ts:89-104` — model the new one on it.)
 
-### W02 — pending/try/catch/finally submit envelope copy-pasted across 14 flow methods (~60 LOC)
+### W02 — pending/try/catch/finally submit envelope copy-pasted across 12 methods in flows (~60 LOC)
 
-Same `web/src/lib/auth/flows.svelte.ts`. One wrapper.
+The `if (this.pending) return false; this.pending = true; try { … } catch { … } finally
+{ this.pending = false; }` envelope appears 12× in `web/src/lib/auth/flows.svelte.ts`
+(LoginFlow.submitCredentials/submitTotp, RegisterFlow.submit, VerifyEmailFlow.resend/verify,
+ForgotPassword.request/verifyCode/reset, TwoFactorFlow.setup/verify/disable, LogoutFlow.run),
+plus 2 more in `passkey-flow.svelte.ts` (login/register) — one wrapper covers all 14.
 
 ### W03 — TOTP challenge step duplicated wholesale in SignInForm and RegisterForm (~55 LOC)
 
@@ -191,14 +241,19 @@ Auth forms. A small field-helper collapses them.
 
 ### W05 — Dead auth exports (~25 LOC)
 
-9 schema type aliases, `twoFactorPending` getter, test-only helpers, unread `PasskeyInfo` fields.
+9 schema type aliases (`schemas.ts:143-151`), `twoFactorPending` getter
+(`flows.svelte.ts:123-125`), the test-only helper `isTransportFailure` (`auth-copy.ts:102`,
+referenced only by its own test — NOT `createAuthClient`, which builds the live singleton), and
+`PasskeyInfo` fields never read (`deviceType`/`transports`/`createdAt`/`lastUsedAt` — consumers
+read only `id` and `label`).
 
-### W06 — Three hand-rolled IndexedDB cursor-scan loops (~45 LOC)
+### W06 — Four hand-rolled IndexedDB cursor-scan loops (~100 LOC)
 
-`web/src/lib/workers/opfs-cache.ts:199-223` (`readAllPointers`), `opfs-cache.ts:483-503`
-(`listIdbArtifacts`), `opfs-retention.ts:30-44` (`readLastUsedMap`) share the identical
-tx/openCursor/continue skeleton (~28 lines each). `web/src/lib/workers/idb.ts` already has the
-helper precedent — extend it.
+`web/src/lib/workers/opfs-cache.ts:208-239` (`readAllPointers`), `opfs-cache.ts:535-575`
+(`readIdbArtifactMetadata`), `opfs-cache.ts:577-612` (`listIdbArtifacts` — `openKeyCursor`), and
+`opfs-retention.ts:30-51` (`readLastUsedMap`) all hand-roll the tx/openCursor/continue skeleton
+(~15-35 lines each). `web/src/lib/workers/idb.ts:103-130` already has the `idbScan` cursor
+helper — extend it and migrate all four.
 
 ### W07 — `createOpfsStore` dead in prod and tests (~34 LOC)
 
@@ -206,8 +261,8 @@ helper precedent — extend it.
 
 ### W08 — `quran.ts` re-export block = second front door for `quran-types.ts` (~30 LOC)
 
-~20 types + 6 consts re-exported; 54 files import via `$lib/data/quran`, 62 via
-`$lib/data/quran-types` (some import both in one file). Consolidating onto one door is a 54-file
+~20 types + 6 consts re-exported; 51 files import via `$lib/data/quran` (50 static + 1 dynamic),
+55 via `$lib/data/quran-types`, 7 import both. Consolidating onto one door is a 50+-file
 codemod for ~30 LOC — low priority; skip unless touching those files anyway. Helpers
 (`surah*For`, `routeContextFromParams`, …) stay exported from `quran.ts` regardless — the
 nav-guard test imports them from there.
@@ -223,7 +278,7 @@ assignment after it).
 | --- | --- |
 | `notification_v1` + `services/notification` (~310 LOC; zero callers, sole writer is its own admin endpoint) | **Keep** — cross-device sync is the next milestone; in-app notifications plausibly ride it. |
 | `admin_route_v1` + `admin_acl_v1` + `acl_service` (~940 LOC; undocumented, cache never read) | **Keep** — owner's call. |
-| Four provider `/auth/{p}/v1/user` endpoints (~35 LOC; zero repo references) | **Keep** — an out-of-repo mobile client may call them (see `deploy/.env.example` native sign-in). |
+| Four provider `/auth/{p}/v1/user` endpoints (~35 LOC; zero repo references) | **Keep** — an out-of-repo mobile client may call them. (`deploy/.env.example:112-121` documents native sign-in; it names the `/token` endpoint, not `/user`, so the keep is insurance on plausibility, not a documented consumer.) |
 | Google auth legacy paths | **Delete `authenticate_oauth` only** (`services/auth.rs:187-222`, zero callers, safe). The `users.google_id` (encrypted) vs `user_oauth_identity` (plaintext) split stays until a deliberate security-architecture pass. |
 
 ## Refuted / intentional — do not "fix"
@@ -233,10 +288,13 @@ assignment after it).
   CSRF auto-refresh in `auth-client.ts:213-222`, and rust `rotate_session_after_trust_change`
   returning `Ok(false)` only when the session was NOT rotated. A unified `completeLogin()` adding
   the `!rotated` fallback to 2FA flows would change behavior for no gain.
-- **Fake-IndexedDB test doubles**: consolidating them is not possible as proposed — two of the
-  three files use different mechanisms (a module-boundary `vi.mock` of `lib/workers/idb`, whose
-  comment explains happy-dom has no persistent IndexedDB), and mocking the module under its own
-  test makes that suite vacuous.
+- **Hand-rolled IndexedDB test doubles**: consolidating them is not possible as proposed. The
+  SW suites (4 files: `service-worker-data-cache`, `service-worker-pending`,
+  `service-worker-api-bypass`, `auth-cache-purge`) already share one module-boundary
+  `vi.mock` of `lib/workers/idb` (whose comment at `service-worker-data-cache.test.ts:12-13`
+  explains happy-dom has no persistent IndexedDB), while `idb.test.ts` and `opfs-cache.test.ts`
+  hand-roll platform fakes because they test those modules themselves — mocking the module under
+  its own test makes the suite vacuous.
 - **reader-copy.ts resolver "table-driven" rewrite**: the proposed signature-derived binder does
   not typecheck — paraglide message fns take a single object input while every call site calls
   positionally (`copy.seo.pageTitle(i,f,l)`), so positional adapters are irreducible. Per-message
@@ -250,7 +308,8 @@ assignment after it).
 
 - Gates after every batch: `pnpm check`, `pnpm lint`, `pnpm test` (all three must stay green;
   lint and check are `--deny-warnings` / `--fail-on-warnings`), plus `pnpm build` before push —
-  the postbuild i18n-budget + offline-pack steps are not covered by the trio.
+  its prebuild (`i18n:check`) and postbuild (`gen-offline-pack.ts`) steps are not covered by the
+  trio.
 - Rust formatting: scope with `rustfmt --edition 2021 <files>` — never bare `cargo fmt`
   (reformats the whole package, ~45-file diff pollution).
 - Sequencing: S06 before any reader-copy refactor; S02's internal-import map means the sidebar
