@@ -48,7 +48,8 @@
   path={canonicalPublicPath}
   title={seoTitle}
   description={seoDescription}
-  includeTextVariants={false}
+  includeTextVariants
+  includePlainVariant={false}
   inLanguage={contentLanguage}
   noindex={pending}
   crumbs={[

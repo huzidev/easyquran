@@ -79,7 +79,7 @@ export function renderLlmsIndex(): string {
       "- Juz: `/app/juz/<1-30>`",
       "- Mushaf page: `/app/page/<1-604>`",
       "- Translation: `/app/<slug>/t/<lang>/<translator>`",
-      "- The marketing pages (listed below) also serve markdown: send `Accept: text/markdown` or append `.md` to the path; reader routes are HTML-only",
+      "- Every route above (reader and marketing) also serves markdown: send `Accept: text/markdown` or append `.md` to the path",
       `- Site map: [sitemap.xml](${SITE.url}/sitemap.xml) lists every reader URL; the six marketing pages in one file: [llms-full.txt](${SITE.url}/llms-full.txt)`,
       "",
       ...pageLines,

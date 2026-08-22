@@ -87,18 +87,57 @@ describe("accept-parse mdSiblingPathFor", () => {
     expect(mdSiblingPathFor("/terms")).toBe("/terms.md");
   });
 
-  it.each(["/ar", "/ar/about", "/app/al-fatihah", "/about/", "/about.md", "/llms.txt", "/x"])(
-    "rejects %s",
-    (pathname) => {
-      expect(mdSiblingPathFor(pathname)).toBeNull();
-    },
-  );
+  it.each([
+    "/app/al-fatihah",
+    "/app/al-fatihah/page/2",
+    "/app/juz/30",
+    "/app/page/604",
+    "/app/al-fatihah/t/en/sahih",
+    "/app/al-fatihah/t/en/sahih/page/2",
+    "/app/t/en/sahih/juz/1",
+    "/app/t/en/sahih/page/42",
+  ])("maps reader path %s to its .md sibling", (pathname) => {
+    expect(mdSiblingPathFor(pathname)).toBe(`${pathname}.md`);
+  });
+
+  it.each(["", "/en", "/ar"])("maps localized reader path %s/app/al-fatihah", (prefix) => {
+    expect(mdSiblingPathFor(`${prefix}/app/al-fatihah`)).toBe(`${prefix}/app/al-fatihah.md`);
+    expect(mdSiblingPathFor(`${prefix}/app/al-fatihah/t/en/sahih`)).toBe(
+      `${prefix}/app/al-fatihah/t/en/sahih.md`,
+    );
+    expect(mdSiblingPathFor(`${prefix}/app/t/en/sahih/juz/1`)).toBe(
+      `${prefix}/app/t/en/sahih/juz/1.md`,
+    );
+  });
+
+  it.each([
+    "/ar",
+    "/ar/about",
+    "/app",
+    "/app/juz",
+    "/en/app",
+    "/en/app/juz",
+    "/app/al-fatihah/page/1",
+    "/en/app/al-fatihah/page/1",
+    "/app/al-fatihah/t/en/sahih/page/1",
+    "/app/al-fatihah/page/",
+    "/app/juz/0",
+    "/app/AL-FATIHAH",
+    "/about/",
+    "/about.md",
+    "/llms.txt",
+    "/x",
+  ])("rejects %s", (pathname) => {
+    expect(mdSiblingPathFor(pathname)).toBeNull();
+  });
 });
 
 describe("accept-parse negotiateMarkdownPath", () => {
   it("passes through non-negotiable paths regardless of Accept", () => {
     expect(negotiateMarkdownPath("/app/1", "text/markdown")).toEqual({ kind: "passthrough" });
     expect(negotiateMarkdownPath("/ar/about", "text/markdown")).toEqual({ kind: "passthrough" });
+    expect(negotiateMarkdownPath("/en/app", "text/markdown")).toEqual({ kind: "passthrough" });
+    expect(negotiateMarkdownPath("/en/app/juz", "text/markdown")).toEqual({ kind: "passthrough" });
   });
 
   it("serves markdown when preferred", () => {
@@ -110,10 +149,19 @@ describe("accept-parse negotiateMarkdownPath", () => {
       kind: "markdown",
       mdPath: "/about.md",
     });
+    expect(negotiateMarkdownPath("/app/al-fatihah", "text/markdown")).toEqual({
+      kind: "markdown",
+      mdPath: "/app/al-fatihah.md",
+    });
+    expect(negotiateMarkdownPath("/en/app/al-fatihah/t/en/sahih", "text/markdown")).toEqual({
+      kind: "markdown",
+      mdPath: "/en/app/al-fatihah/t/en/sahih.md",
+    });
   });
 
   it("passes through browser and default accepts", () => {
     expect(negotiateMarkdownPath("/", CHROME_ACCEPT)).toEqual({ kind: "passthrough" });
+    expect(negotiateMarkdownPath("/en/app/page/42", CHROME_ACCEPT)).toEqual({ kind: "passthrough" });
     expect(negotiateMarkdownPath("/", null)).toEqual({ kind: "passthrough" });
     expect(negotiateMarkdownPath("/", "*/*")).toEqual({ kind: "passthrough" });
   });
@@ -121,6 +169,8 @@ describe("accept-parse negotiateMarkdownPath", () => {
   it("rejects unsatisfiable accepts with 406 material", () => {
     const decision = negotiateMarkdownPath("/faq", "application/pdf");
     expect(decision).toEqual({ kind: "not-acceptable", accept: "application/pdf" });
+    const readerDecision = negotiateMarkdownPath("/en/app/page/42", "application/pdf");
+    expect(readerDecision).toEqual({ kind: "not-acceptable", accept: "application/pdf" });
     expect(notAcceptableBody("application/pdf")).toContain("text/html");
     expect(notAcceptableBody("application/pdf")).toContain("text/markdown");
     expect(notAcceptableBody("application/pdf")).toContain("application/pdf");

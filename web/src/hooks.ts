@@ -5,6 +5,7 @@ const SURAH_SEGMENT = "[a-z][a-z0-9]*(?:-[a-z0-9]+)*";
 const CONTENT_LANGUAGE_SEGMENT = "[a-z][a-z0-9]*(?:-[a-z0-9]+)*";
 const TRANSLATOR_SEGMENT = "[a-z0-9]+(?:[.-][a-z0-9]+)*";
 const NUMBER = "[1-9][0-9]*";
+const PAGE_BEYOND_FIRST = "(?:[2-9]|[1-9][0-9]+)";
 const READER_ROUTE_PATTERNS = [
   new RegExp("^/app$", "u"),
   new RegExp("^/app/juz$", "u"),
@@ -18,6 +19,18 @@ const READER_ROUTE_PATTERNS = [
   ),
   new RegExp(
     `^/app/t/${CONTENT_LANGUAGE_SEGMENT}/${TRANSLATOR_SEGMENT}/(?:page|juz)/${NUMBER}$`,
+    "u",
+  ),
+  new RegExp(`^/app/${SURAH_SEGMENT}\\.md$`, "u"),
+  new RegExp(`^/app/${SURAH_SEGMENT}/page/${PAGE_BEYOND_FIRST}\\.md$`, "u"),
+  new RegExp(`^/app/(?:page|juz)/${NUMBER}\\.md$`, "u"),
+  new RegExp(`^/app/${SURAH_SEGMENT}/t/${CONTENT_LANGUAGE_SEGMENT}/${TRANSLATOR_SEGMENT}\\.md$`, "u"),
+  new RegExp(
+    `^/app/${SURAH_SEGMENT}/t/${CONTENT_LANGUAGE_SEGMENT}/${TRANSLATOR_SEGMENT}/page/${PAGE_BEYOND_FIRST}\\.md$`,
+    "u",
+  ),
+  new RegExp(
+    `^/app/t/${CONTENT_LANGUAGE_SEGMENT}/${TRANSLATOR_SEGMENT}/(?:page|juz)/${NUMBER}\\.md$`,
     "u",
   ),
 ];

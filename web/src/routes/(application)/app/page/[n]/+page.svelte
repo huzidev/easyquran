@@ -40,7 +40,8 @@
   path={canonicalPath}
   title={seoTitle}
   description={seoDescription}
-  includeTextVariants={false}
+  includeTextVariants
+  includePlainVariant={false}
 />
 
 <ReaderShell>

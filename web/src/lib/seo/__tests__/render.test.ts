@@ -25,6 +25,11 @@ describe("renderLlmsIndex", () => {
     expect(llms).toContain("/app/page/");
   });
 
+  it("documents markdown negotiation for every route, reader included", () => {
+    expect(llms).toContain("send `Accept: text/markdown` or append `.md` to the path");
+    expect(llms).not.toContain("HTML-only");
+  });
+
   it("resolves every list link to an absolute site URL", () => {
     for (const line of llms.split("\n")) {
       if (!line.startsWith("- [")) continue;

@@ -189,7 +189,8 @@
   title={seoTitle}
   description={seoDescription}
   extraLd={chapterLd}
-  includeTextVariants={false}
+  includeTextVariants
+  includePlainVariant={false}
   inLanguage={contentLanguage}
   noindex={translationPending}
   crumbs={[

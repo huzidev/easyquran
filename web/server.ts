@@ -6,7 +6,7 @@ import {
   type OutgoingHttpHeaders,
   type ServerResponse,
 } from "node:http";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 import {
   mdSiblingPathFor,
@@ -192,9 +192,13 @@ function applyHeaders(
   const mdPath = mdSiblingPathFor(pathname);
   if (isHtml && mdPath !== null) {
     const alternate = `<${mdPath}>; rel="alternate"; type="text/markdown"`;
-    mergeHeaderInPlace(response, argsHeaders, "Link", (existing) =>
-      existing ? `${existing}, ${alternate}` : alternate,
-    );
+    // Hooks already appends the same token on SSR HTML; prerendered HTML has no
+    // Link yet. Merge without duplicating either way.
+    const mergeAlternate = (existing: string): string => {
+      if (existing.includes(alternate)) return existing;
+      return existing ? `${existing}, ${alternate}` : alternate;
+    };
+    mergeHeaderInPlace(response, argsHeaders, "Link", mergeAlternate);
   }
   if (
     headerArg(argsHeaders, "cache-control") === undefined &&
@@ -258,6 +262,38 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
   void routeNegotiated(request, response, decodedPath);
 });
 
+// decodedPath is attacker-controlled (decodeURIComponent output): ../ survives
+// URL parsing as %2f-encoded segments. Every candidate must round-trip through
+// the negotiated md-path patterns AND resolve inside prerenderedDir before it
+// touches the filesystem.
+function isSafeMdCandidate(candidate: string): boolean {
+  if (mdSiblingPathFor(candidate.replace(/\.md$/u, "")) !== candidate) return false;
+  const root = resolve(prerenderedDir);
+  return resolve(root, `.${candidate}`).startsWith(`${root}${sep}`);
+}
+
+// Localized reader .md spellings have no prerendered file of their own (/ar is
+// never crawled; the content is locale-independent), and the Arabic family must
+// not SSR on Bun (no node:sqlite), so a de-localized prerendered file is tried first.
+async function servePrerenderedMd(
+  response: ServerResponse,
+  mdPath: string,
+): Promise<boolean> {
+  const prefix = /^\/(?:en|ar)(?=\/app\/)/u.exec(mdPath)?.[0];
+  const candidates = prefix ? [mdPath, mdPath.slice(prefix.length)] : [mdPath];
+  for (const candidate of candidates) {
+    if (!isSafeMdCandidate(candidate)) continue;
+    const body = await readFile(join(prerenderedDir, candidate)).catch(() => null);
+    if (body !== null) {
+      response.statusCode = 200;
+      response.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      response.end(body);
+      return true;
+    }
+  }
+  return false;
+}
+
 // Prerendered pages are served by sirv inside the adapter handler BEFORE hooks
 // run, so Accept negotiation for the md-sibling marketing pages has to happen
 // here — one layer above the handler — reading the prerendered .md directly.
@@ -267,6 +303,9 @@ async function routeNegotiated(
   decodedPath: string,
 ): Promise<void> {
   if (request.method === "GET") {
+    if (/^\/(?:en|ar)\/app\/.*\.md$/u.test(decodedPath)) {
+      if (await servePrerenderedMd(response, decodedPath)) return;
+    }
     const negotiation = negotiateMarkdownPath(decodedPath, request.headers.accept ?? null);
     if (negotiation.kind === "not-acceptable") {
       response.statusCode = 406;
@@ -277,13 +316,7 @@ async function routeNegotiated(
       return;
     }
     if (negotiation.kind === "markdown") {
-      const body = await readFile(join(prerenderedDir, negotiation.mdPath)).catch(() => null);
-      if (body !== null) {
-        response.statusCode = 200;
-        response.setHeader("Content-Type", "text/markdown; charset=utf-8");
-        response.end(body);
-        return;
-      }
+      if (await servePrerenderedMd(response, negotiation.mdPath)) return;
     }
   }
   try {

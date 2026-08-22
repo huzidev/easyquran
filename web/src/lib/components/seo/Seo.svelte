@@ -30,6 +30,7 @@
     faq,
     extraLd,
     includeTextVariants = true,
+    includePlainVariant = true,
     noindex = false,
     inLanguage = "en",
     crumbs,
@@ -42,6 +43,7 @@
     // eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- schema.org JSON-LD nodes are intentionally heterogeneous bags (arbitrary keys, nested nodes); only serialized via JSON.stringify, never read back by key
     extraLd?: Record<string, unknown>[];
     includeTextVariants?: boolean;
+    includePlainVariant?: boolean;
     noindex?: boolean;
     inLanguage?: string;
     crumbs?: Crumb[];
@@ -179,6 +181,8 @@
 
     {#if includeTextVariants}
       <link rel="alternate" type="text/markdown" href={mdHref} />
+    {/if}
+    {#if includeTextVariants && includePlainVariant}
       <link rel="alternate" type="text/plain" href={txtHref} />
     {/if}
 

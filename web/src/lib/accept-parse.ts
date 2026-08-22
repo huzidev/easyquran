@@ -19,6 +19,36 @@ const MD_SIBLING_PATHS: ReadonlyMap<string, string> = new Map(
     .map((href) => [href, href === "/" ? "/index.md" : `${href}.md`] as const),
 );
 
+const SURAH_SEGMENT = "[a-z][a-z0-9]*(?:-[a-z0-9]+)*";
+const CONTENT_LANGUAGE_SEGMENT = "[a-z][a-z0-9]*(?:-[a-z0-9]+)*";
+const TRANSLATOR_SEGMENT = "[a-z0-9]+(?:[.-][a-z0-9]+)*";
+const NUMBER = "[1-9][0-9]*";
+const PAGE_BEYOND_FIRST = "(?:[2-9]|[1-9][0-9]+)";
+const READER_MD_SIBLING_PATTERNS: readonly RegExp[] = [
+  new RegExp(`^/app/${SURAH_SEGMENT}$`, "u"),
+  new RegExp(`^/app/${SURAH_SEGMENT}/page/${PAGE_BEYOND_FIRST}$`, "u"),
+  new RegExp(`^/app/(?:page|juz)/${NUMBER}$`, "u"),
+  new RegExp(`^/app/${SURAH_SEGMENT}/t/${CONTENT_LANGUAGE_SEGMENT}/${TRANSLATOR_SEGMENT}$`, "u"),
+  new RegExp(
+    `^/app/${SURAH_SEGMENT}/t/${CONTENT_LANGUAGE_SEGMENT}/${TRANSLATOR_SEGMENT}/page/${PAGE_BEYOND_FIRST}$`,
+    "u",
+  ),
+  new RegExp(
+    `^/app/t/${CONTENT_LANGUAGE_SEGMENT}/${TRANSLATOR_SEGMENT}/(?:page|juz)/${NUMBER}$`,
+    "u",
+  ),
+].map((pattern) => new RegExp(`^(?:/(?:en|ar))?${pattern.source.slice(1)}`, pattern.flags));
+
+function readerMdSibling(pathname: string): string | null {
+  if (!pathname.startsWith("/app/") && !/^\/(?:en|ar)\/app\//u.test(pathname)) return null;
+  if (pathname === "/app/juz" || pathname === "/en/app/juz" || pathname === "/ar/app/juz") {
+    return null;
+  }
+  return READER_MD_SIBLING_PATTERNS.some((pattern) => pattern.test(pathname))
+    ? `${pathname}.md`
+    : null;
+}
+
 function specificityOf(type: string): number {
   if (type === "*/*") return 0;
   if (type.endsWith("/*")) return 1;
@@ -99,7 +129,7 @@ export function appendVaryAccept(headers: Headers): void {
 }
 
 export function mdSiblingPathFor(pathname: string): string | null {
-  return MD_SIBLING_PATHS.get(pathname) ?? null;
+  return MD_SIBLING_PATHS.get(pathname) ?? readerMdSibling(pathname);
 }
 
 export function negotiateMarkdownPath(pathname: string, accept: string | null): MdNegotiation {

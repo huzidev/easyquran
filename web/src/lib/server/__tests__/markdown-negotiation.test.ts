@@ -157,11 +157,15 @@ describe("mdSiblingRequest", () => {
     { pathname: "/contact", mdPath: "/contact.md" },
     { pathname: "/privacy", mdPath: "/privacy.md" },
     { pathname: "/terms", mdPath: "/terms.md" },
+    { pathname: "/app/al-fatihah", mdPath: "/app/al-fatihah.md" },
+    { pathname: "/en/app/al-fatihah", mdPath: "/en/app/al-fatihah.md" },
+    { pathname: "/app/juz/1", mdPath: "/app/juz/1.md" },
+    { pathname: "/en/app/al-fatihah/t/en/sahih", mdPath: "/en/app/al-fatihah/t/en/sahih.md" },
   ])("maps $pathname to $mdPath", ({ pathname, mdPath }) => {
     expect(mdSiblingRequest(pathname)).toEqual({ canonicalPath: pathname, mdPath });
   });
 
-  it.each(["/ar", "/ar/about", "/app/al-fatihah", "/about.md", "/llms.txt", "/about/"])(
+  it.each(["/ar", "/ar/about", "/app", "/app/juz", "/about.md", "/llms.txt", "/about/"])(
     "returns null for %s",
     (pathname) => {
       expect(mdSiblingRequest(pathname)).toBeNull();

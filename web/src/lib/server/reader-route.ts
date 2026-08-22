@@ -188,7 +188,7 @@ export function parseReaderRoute(
   const marker = "/app";
   const markerIndex = routeId.indexOf(marker);
   if (markerIndex < 0) return null;
-  const routePattern = routeId.slice(markerIndex);
+  const routePattern = routeId.slice(markerIndex).replace(/\.md$/u, "");
   const surah = requiredParam(params, "surah", SURAH_SEGMENT);
   const lang = requiredParam(params, "lang", CONTENT_LANGUAGE_SEGMENT);
   const translator = requiredParam(params, "translator", TRANSLATOR_SEGMENT);

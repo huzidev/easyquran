@@ -240,7 +240,11 @@ async function resolveRequest(
 ): Promise<{ response: Response; nonce: string }> {
   const key = translationRouteCacheKey(readerRoute, uiLocale);
   const cacheable =
-    event.request.method === "GET" && !event.isDataRequest && key !== null && !requestHasCookie;
+    event.request.method === "GET" &&
+    !event.isDataRequest &&
+    key !== null &&
+    !requestHasCookie &&
+    !event.url.pathname.endsWith(".md");
   const attributes = documentAttributes(uiLocale);
   const nonce = freshNonce();
   const resolveOpts = {
@@ -311,7 +315,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       response = notAcceptable(accept);
       negotiated = true;
     } else if (chosen === "text/markdown") {
-      const md = await event.fetch(mdSibling.mdPath);
+      const md = await event.fetch(mdSibling.mdPath.replace(/^\/(?:en|ar)(?=\/app\/)/u, ""));
       if (md.ok) {
         response = new Response(await md.text(), {
           headers: {
