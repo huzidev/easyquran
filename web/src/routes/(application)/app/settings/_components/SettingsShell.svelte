@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { cn } from "$lib/utils";
+  import { Icon, type IconName } from "$lib/components/icon";
   import type { SettingsCopy } from "$lib/i18n/settings-copy";
 
   let {
@@ -11,7 +12,7 @@
     children,
   }: {
     copy: Pick<SettingsCopy, "title" | "sectionsLabel">;
-    sections: { id: string; label: string }[];
+    sections: { id: string; label: string; icon: IconName }[];
     active: string;
     onSelect: (id: string) => void;
     children: Snippet;
@@ -48,13 +49,21 @@
               aria-current={section.id === active ? "page" : undefined}
               class={cn(
                 navItemClass(section.id === active),
-                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                "gap-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
               )}
               onclick={(event) => {
                 event.preventDefault();
                 onSelect(section.id);
               }}
             >
+              <Icon
+                name={section.icon}
+                size={15}
+                class={cn(
+                  "shrink-0 transition-colors",
+                  section.id === active ? "text-accent" : "text-fg-4",
+                )}
+              />
               {section.label}
             </a>
           </li>
@@ -63,7 +72,11 @@
     </nav>
 
     <div class="min-w-0 flex-1 lg:ps-10" aria-live="polite">
-      {@render children()}
+      {#key active}
+        <div class="animate-fade-up">
+          {@render children()}
+        </div>
+      {/key}
     </div>
   </div>
 </div>

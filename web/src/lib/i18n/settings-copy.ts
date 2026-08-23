@@ -29,6 +29,7 @@ import {
   settings_reading_intro,
   settings_reading_preview,
   settings_reading_sample,
+  settings_reading_sample_alt,
   settings_reading_translation_font,
   settings_reading_translation_size,
   settings_section_account,
@@ -225,6 +226,7 @@ export interface SettingsCopy {
     readonly translationSize: string;
     readonly preview: string;
     readonly sample: string;
+    readonly sampleAlt: string;
     readonly mode: string;
     readonly modeNames: {
       readonly verse: string;
@@ -397,6 +399,7 @@ export function getSettingsCopy(locale: UiLocale = getLocale() as UiLocale): Set
       translationSize: noArgs(settings_reading_translation_size),
       preview: noArgs(settings_reading_preview),
       sample: noArgs(settings_reading_sample),
+      sampleAlt: noArgs(settings_reading_sample_alt),
       mode: noArgs(reader_mode),
       modeNames: {
         verse: noArgs(reader_ayah_by_ayah),

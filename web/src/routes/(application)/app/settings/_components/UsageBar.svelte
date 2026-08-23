@@ -105,6 +105,7 @@
       ></span>
       <span class="min-w-0 flex-1 truncate">{labels[layer.id]}</span>
       <span class="tabular-nums text-fg-2">{formatBytes(layer.bytes)}</span>
+      <span class="w-9 shrink-0 text-end tabular-nums text-fg-4">{percent(layer.bytes)}</span>
     </li>
   {/each}
 </ul>

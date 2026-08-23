@@ -27,7 +27,18 @@
     copy: SettingsCopy["reading"];
   } = $props();
 
-  const SAMPLE_ARABIC = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+  const SPECIMEN = [
+    {
+      marker: "٥",
+      text: "فَإِنَّ مَعَ ٱلْعُسْرِ يُسْرًا",
+      sample: () => copy.sampleAlt,
+    },
+    {
+      marker: "٦",
+      text: "إِنَّ مَعَ ٱلْعُسْرِ يُسْرًا",
+      sample: () => copy.sample,
+    },
+  ] as const;
 
   const pill = "rounded-lg border px-3.5 py-2 text-[13.5px] transition-colors duration-150";
   const pillOn = "border-accent bg-accent-soft text-fg";
@@ -68,7 +79,34 @@
   <h2 class="text-[17px] font-semibold tracking-[-0.02em] text-fg">{heading}</h2>
   <p class="mt-1 max-w-[70ch] text-[14.5px] leading-relaxed text-fg-2">{copy.intro}</p>
 
-  <div class="mt-4 divide-y divide-line overflow-hidden rounded-xl border border-line-2 bg-bg-1">
+  <div class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,340px)] lg:items-start lg:gap-6">
+    <aside class="lg:sticky lg:top-[76px] lg:order-2" aria-label={copy.preview}>
+      <div class="rounded-xl border border-line-2 bg-bg-2 px-5 py-4 sm:px-6 sm:py-5">
+        <p class="eyebrow">{copy.preview}</p>
+        {#if reader.mode === "verse"}
+          <div class="mt-3.5 grid gap-5">
+            {#each SPECIMEN as verse (verse.marker)}
+              <div>
+                <p class="spec-arabic" dir="rtl" lang="ar"
+                  >{verse.text}<span class="ayah-marker">{verse.marker}</span></p
+                >
+                <p class="spec-translation" dir="auto">{verse.sample()}</p>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="spec-flow mt-3.5" dir="rtl" lang="ar">
+            {#each SPECIMEN as verse (verse.marker)}{verse.text}<span class="ayah-marker"
+                >{verse.marker}</span
+              > {/each}
+          </p>
+        {/if}
+      </div>
+    </aside>
+
+    <div
+      class="mt-4 divide-y divide-line overflow-hidden rounded-xl border border-line-2 bg-bg-1 lg:order-1 lg:mt-0"
+    >
     <div class="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-5">
       <span class="text-[14.5px] font-medium text-fg">{copy.mode}</span>
       <div class="flex shrink-0 gap-1.5">
@@ -166,30 +204,34 @@
       </div>
     </div>
 
-    <div class="px-4 py-3.5 sm:px-5">
-      <span class="text-[14.5px] font-medium text-fg">{copy.preview}</span>
-      <div class="mt-2.5 overflow-x-auto rounded-xl border border-line bg-bg-2 px-4 py-3.5">
-        <p class="preview-arabic" dir="rtl" lang="ar">{SAMPLE_ARABIC}</p>
-        <p class="preview-translation" dir="auto">{copy.sample}</p>
-      </div>
     </div>
   </div>
 </div>
 
 <style>
-  .preview-arabic {
+  .spec-arabic {
     font-family: var(--reader-arabic-family, var(--font-arabic));
     font-size: var(--reader-arabic-size, 33px);
     line-height: 2.15;
     margin: 0;
     text-align: right;
-    white-space: nowrap;
   }
 
-  .preview-translation {
+  .spec-translation {
     font-family: var(--reader-translation-family, var(--font-sans));
     font-size: var(--reader-translation-size, 17px);
     line-height: 1.85;
     margin: 0.5rem 0 0;
+    color: var(--fg-2);
+  }
+
+  .spec-flow {
+    font-family: var(--reader-arabic-family, var(--font-arabic));
+    font-size: var(--reader-arabic-size, 33px);
+    line-height: 2.35;
+    margin: 0;
+    text-align: justify;
+    text-align-last: center;
+    word-spacing: 0.14em;
   }
 </style>

@@ -3,6 +3,7 @@
   import { page } from "$app/state";
   import { replaceState } from "$app/navigation";
   import { getSettingsCopy } from "$lib/i18n/settings-copy";
+  import type { IconName } from "$lib/components/icon";
   import AppearanceSection from "./_components/AppearanceSection.svelte";
   import StorageSection from "./_components/StorageSection.svelte";
   import ReadingSection from "./_components/ReadingSection.svelte";
@@ -14,12 +15,12 @@
 
   type SectionId = "storage" | "appearance" | "reading" | "privacy" | "account";
 
-  const sections: { id: SectionId; label: string }[] = [
-    { id: "storage", label: copy.nav.storage },
-    { id: "appearance", label: copy.nav.appearance },
-    { id: "reading", label: copy.nav.reading },
-    { id: "privacy", label: copy.nav.privacy },
-    { id: "account", label: copy.nav.account },
+  const sections: { id: SectionId; label: string; icon: IconName }[] = [
+    { id: "storage", label: copy.nav.storage, icon: "database" },
+    { id: "appearance", label: copy.nav.appearance, icon: "swatches" },
+    { id: "reading", label: copy.nav.reading, icon: "book" },
+    { id: "privacy", label: copy.nav.privacy, icon: "shield" },
+    { id: "account", label: copy.nav.account, icon: "user" },
   ];
 
   function isSectionId(value: string): value is SectionId {
