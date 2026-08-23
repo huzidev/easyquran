@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { page } from "$app/state";
-  import { replaceState } from "$app/navigation";
+  import { goto, replaceState } from "$app/navigation";
   import amiriArabic from "@fontsource/amiri/files/amiri-arabic-400-normal.woff2?url";
   import { Nav } from "$lib/components/nav";
   import { Footer } from "$lib/components/footer";
@@ -11,6 +11,7 @@
   import { footerLinksFor } from "$lib/i18n/footer-links";
   import { getReaderUiCopy } from "$lib/i18n/reader-copy";
   import { readerHrefFor, type QuranReaderHref } from "$lib/i18n/reader";
+  import { publicHref } from "$lib/i18n/public-href";
   import { marketingHomeHref, type LocaleLink } from "$lib/i18n/marketing-copy";
   import { deLocalizeUrl } from "$lib/paraglide/runtime";
   import { reader } from "$lib/stores/reader.svelte";
@@ -24,6 +25,9 @@
   let { data, children } = $props();
   let menuOpen = $state(false);
   const copy = getReaderUiCopy();
+  const SETTINGS_PATH = "/app/settings";
+  const onSettingsRoute = $derived((page.route.id ?? "").endsWith("/app/settings"));
+
   const canonicalReaderHref = $derived.by<QuranReaderHref>(() => {
     const canonical = deLocalizeUrl(page.url);
     const pathname = canonical.pathname.replace(/\/+$/, "") || "/";
@@ -31,19 +35,28 @@
     // prefix, so the rebuilt path is always a reader route.
     return `${pathname}${canonical.search}${canonical.hash}` as QuranReaderHref;
   });
-  const currentReaderHref = $derived(readerHrefFor(copy.locale, canonicalReaderHref));
+  // The settings page has no localized variant the server will render, so its locale switcher
+  // and footer reader links fall back to the localized reader home instead of a 404.
+  const chromeReaderHref = $derived<QuranReaderHref>(
+    onSettingsRoute ? "/app" : canonicalReaderHref,
+  );
+  const currentReaderHref = $derived(readerHrefFor(copy.locale, chromeReaderHref));
   const localeLinks = $derived.by<LocaleLink[]>(() =>
     SUPPORTED_UI_LOCALES.map((locale) => ({
       locale,
       direction: UI_LOCALES[locale].direction,
       label: UI_LOCALES[locale].endonym,
-      href: readerHrefFor(locale, canonicalReaderHref),
+      href: readerHrefFor(locale, chromeReaderHref),
       current: locale === copy.locale,
     })),
   );
   const footerLinks = $derived(footerLinksFor(copy.locale, copy.footerLinks, currentReaderHref));
   const knownMoreIds = (ids: readonly string[]): string[] =>
     ids.filter((id) => TRANSLATION_CATALOGUE_BY_ID.has(id));
+
+  function openSettings(): void {
+    void goto(publicHref(SETTINGS_PATH));
+  }
 
   onMount(() => {
     reader.hydrate(parseModeParam(page.url) ?? undefined);
@@ -62,6 +75,7 @@
   });
 
   $effect(() => {
+    if (onSettingsRoute) return;
     const url = page.url;
     const current = untrack(() => reader.mode);
     const param = parseModeParam(url);
@@ -77,6 +91,7 @@
   });
 
   $effect(() => {
+    if (onSettingsRoute) return;
     const url = page.url;
     const parsed = parseMoreParam(url);
     if (parsed.length > 0) {
@@ -104,8 +119,33 @@
     void quranWorker.setPinnedTranslations(pinned).catch(() => {});
   });
 
-  // Dynamic import on purpose: the reader appearance panel owns ~34 messages that nothing renders
-  // until the user opens the panel. See docs/quran-system.md (Part 2, Message chunking).
+  // Registered asynchronously so `@tanstack/hotkeys` stays out of the initial bundle — same
+  // shape as GlobalSearch.svelte. Mod+, opens the settings page from any reader surface.
+  $effect(() => {
+    let destroyed = false;
+    let cleanup: (() => void) | undefined;
+
+    void import("$lib/hotkeys.svelte").then(({ registerHotkey }) => {
+      if (destroyed) return;
+      const openSettingsHotkey = registerHotkey("Mod+,", (event) => {
+        // IME: don't let a composition session's chord hijack the page.
+        if (event.isComposing) return;
+        openSettings();
+      }, { meta: { name: "Open settings" } });
+      cleanup = () => {
+        openSettingsHotkey.unregister();
+      };
+    });
+
+    return () => {
+      destroyed = true;
+      cleanup?.();
+    };
+  });
+
+  // Dynamic import on purpose: the reader appearance panel's copy spans several message
+  // namespaces (reader-settings, controls, settings, reader) and nothing renders until the user
+  // opens the panel. See docs/quran-system.md (Part 2, Message chunking).
   const loadReaderSettingsCopy = async () => {
     const { getReaderSettingsCopy } = await import("$lib/i18n/reader-settings-copy");
     return getReaderSettingsCopy(copy.locale);

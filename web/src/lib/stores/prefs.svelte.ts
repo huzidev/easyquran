@@ -7,7 +7,7 @@ import {
   type SurfaceId,
   type ThemeMode,
 } from "$lib/config/site";
-import { asLiteral, asObject, asString, readJSON, writeJSON } from "$lib/storage";
+import { asLiteral, asObject, asString, onStorageKey, readJSON, writeJSON } from "$lib/storage";
 import { deriveTokens, tokensToCss, type CustomSeeds } from "$lib/theme/derive";
 
 const STORAGE_KEY = "easyquran.prefs";
@@ -84,6 +84,10 @@ class PrefsStore {
     if (this.#hydrated || !browser) return;
     this.#hydrated = true;
     this.#prefs = { ...this.#prefs, ...load() };
+    onStorageKey(STORAGE_KEY, () => {
+      this.#prefs = load();
+      this.apply();
+    });
   }
 
   get current(): Readonly<Prefs> {

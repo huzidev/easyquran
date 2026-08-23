@@ -27,7 +27,7 @@ import { createWasmQueryRunner } from "$lib/quran/wasm-query-runner";
 import init, { type Database, type Sqlite3Static } from "@sqlite.org/sqlite-wasm";
 import { uniq } from "es-toolkit";
 
-import type { WorkerOutbound, WorkerRequest, WorkerStatus } from "../quran/protocol";
+import type { StorageArtifactInfo, WorkerOutbound, WorkerRequest, WorkerStatus } from "../quran/protocol";
 import {
   buildCanonicalSearchCorpus,
   searchCanonicalCorpus,
@@ -43,14 +43,17 @@ import {
   type LoadedQuranSource,
 } from "../quran/view/source-runtime";
 import {
+  deleteCachedArtifact,
   ensureArtifact,
+  forgetSessionArtifact,
   inspectCachedArtifacts,
+  listCachedArtifacts,
   QURAN_ROW_COUNT,
   sweepAbandonedTemps,
   type CachedArtifactInfo,
   type StagedValidator,
 } from "./opfs-cache";
-import { pruneTranslations } from "./opfs-retention";
+import { clearLastUsed, pruneTranslations, readLastUsedMap } from "./opfs-retention";
 
 interface WorkerCtx {
   postMessage(msg: WorkerOutbound): void;
@@ -311,6 +314,7 @@ function evictTranslationDbs(): void {
     if (oldest === undefined) break;
     const database = translationDbs.get(oldest);
     translationDbs.delete(oldest);
+    forgetSessionArtifact(oldest);
     if (database) {
       try {
         database.close();
@@ -322,6 +326,7 @@ function evictTranslationDbs(): void {
 function forgetTranslations(ids: readonly string[]): void {
   for (const id of ids) {
     cachedTranslationIds.delete(id);
+    forgetSessionArtifact(id);
     const database = translationDbs.get(id);
     if (database) {
       translationDbs.delete(id);
@@ -436,6 +441,78 @@ function sourceState(sourceId: QuranSourceId): WorkerSourceState {
   return state;
 }
 
+function toStorageArtifactInfo(
+  artifact: CachedArtifactInfo,
+  lastUsed: ReadonlyMap<string, number>,
+): StorageArtifactInfo {
+  const used = lastUsed.get(artifact.id);
+  return {
+    id: artifact.id,
+    store: artifact.store,
+    tag: artifact.tag,
+    sizeBytes: artifact.sizeBytes,
+    lastUsed: used !== undefined ? used : null,
+  };
+}
+
+export async function listStorageArtifacts(): Promise<StorageArtifactInfo[]> {
+  const [artifacts, lastUsed] = await Promise.all([listCachedArtifacts(), readLastUsedMap()]);
+  return artifacts.map((artifact) => toStorageArtifactInfo(artifact, lastUsed));
+}
+
+export async function deleteStorageArtifact(sourceId: string): Promise<null> {
+  if (isArabicSourceId(sourceId)) throw new Error("arabic");
+  if (pendingTranslationRunners.has(sourceId)) throw new Error("busy");
+  forgetTranslations([sourceId]);
+  // SAFETY: handlers run concurrently (void handleMessage), so a same-id
+  // ensureTranslation/read can register a download inside the awaits below and
+  // resurrect the artifact. Holding the pending slot for the whole delete makes
+  // any in-window runner observe this gate and reject busy instead.
+  const deletionGate = Promise.reject<QuranQueryRunner>(new Error("busy"));
+  void deletionGate.catch(() => {});
+  pendingTranslationRunners.set(sourceId, deletionGate);
+  try {
+    const artifacts = await listCachedArtifacts();
+    const hit = artifacts.find((artifact) => artifact.id === sourceId);
+    if (hit) {
+      await deleteCachedArtifact(sourceId, hit.tag);
+      await clearLastUsed(sourceId);
+    }
+  } finally {
+    pendingTranslationRunners.delete(sourceId);
+  }
+  return null;
+}
+
+export const __artifactAdminTestHooks = {
+  injectInFlight(id: string): void {
+    pendingTranslationRunners.set(
+      id,
+      new Promise<QuranQueryRunner>(() => {}),
+    );
+  },
+  clearInFlight(id: string): void {
+    pendingTranslationRunners.delete(id);
+  },
+  pendingRunner(id: string): Promise<QuranQueryRunner> | null {
+    return pendingTranslationRunners.get(id) ?? null;
+  },
+  injectOpenDb(id: string, close: () => void): void {
+    // SAFETY: the fake only carries the close() method deleteStorageArtifact calls via
+    // forgetTranslations; no sqlite-wasm query path ever touches a test-injected handle.
+    translationDbs.set(id, { close } as Database);
+  },
+  hasOpenDb(id: string): boolean {
+    return translationDbs.has(id);
+  },
+  markCached(id: string): void {
+    cachedTranslationIds.add(id);
+  },
+  cachedIds(): readonly string[] {
+    return [...cachedTranslationIds];
+  },
+};
+
 function readAllRows(state: WorkerSourceState) {
   if (state.runner) return readAllSourceRows(state.runner, state.source);
   const database = openReadOnly(state.bytes);
@@ -482,7 +559,13 @@ function arabicSourceId(source: QuranReaderSource | undefined): QuranSourceId | 
   return source;
 }
 
-type HandlerResult = QuranSurahText | QuranRangeText | SearchResponse | boolean | null;
+type HandlerResult =
+  | QuranSurahText
+  | QuranRangeText
+  | SearchResponse
+  | boolean
+  | null
+  | readonly StorageArtifactInfo[];
 type Handler<K extends WorkerRequest["type"]> = (
   msg: Extract<WorkerRequest, { type: K }>,
 ) => HandlerResult | Promise<HandlerResult>;
@@ -501,6 +584,8 @@ const handlers = {
     pinnedTranslationIds = m.ids;
     return null;
   },
+  listArtifacts: () => listStorageArtifacts(),
+  deleteArtifact: (m) => deleteStorageArtifact(m.sourceId),
   readSurah: (m) =>
     runReaderOp(
       m.source,

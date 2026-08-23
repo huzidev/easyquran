@@ -11,13 +11,29 @@ import {
 } from "$lib/i18n/marketing-copy";
 import { describe, expect, it } from "vite-plus/test";
 
-function readJson(path: string): Record<string, string> {
-  // SAFETY: messages/*.json catalogs are flat message-id → translation-string maps; the parity tests below iterate every entry as a string.
-  return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as Record<string, string>;
+type Variant = {
+  readonly declarations?: readonly string[];
+  readonly match?: Record<string, string>;
+};
+type Catalog = Record<string, string | Variant[]>;
+
+function readJson(path: string): Catalog {
+  // SAFETY: messages/*.json values are translation strings or paraglide plural variant blocks; the parity tests below cover both shapes.
+  return JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8")) as Catalog;
 }
 
 function parameters(value: string): string[] {
   return [...value.matchAll(/\{([a-z]+)\}/gi)].map((match) => match[1]!).sort();
+}
+
+function arms(value: string | Variant[]): string[] {
+  if (Array.isArray(value)) return value.flatMap((variant) => Object.values(variant.match ?? {}));
+  return [value];
+}
+
+function text(value: string | Variant[]): string {
+  if (Array.isArray(value)) throw new Error("expected plain message text");
+  return value;
 }
 
 describe("marketing message catalogs", () => {
@@ -28,15 +44,29 @@ describe("marketing message catalogs", () => {
     expect(Object.keys(arabic).sort()).toEqual(Object.keys(english).sort());
 
     for (const key of Object.keys(english)) {
-      expect(parameters(arabic[key]!)).toEqual(parameters(english[key]!));
+      const en = english[key]!;
+      const ar = arabic[key]!;
+      expect(Array.isArray(ar), key).toBe(Array.isArray(en));
+      if (Array.isArray(en) && Array.isArray(ar)) {
+        expect(ar.map((variant) => variant.declarations), key).toEqual(
+          en.map((variant) => variant.declarations),
+        );
+        expect(ar.flatMap((variant) => Object.keys(variant.match ?? {})).sort(), key).toEqual(
+          en.flatMap((variant) => Object.keys(variant.match ?? {})).sort(),
+        );
+        continue;
+      }
+      expect(parameters(text(ar)), key).toEqual(parameters(text(en)));
     }
   });
 
   it("contains non-empty plain text only", () => {
     for (const catalog of [english, arabic]) {
       for (const value of Object.values(catalog)) {
-        expect(value.trim()).not.toBe("");
-        expect(value).not.toMatch(/<\/?[a-z][^>]*>/i);
+        for (const arm of arms(value)) {
+          expect(arm.trim()).not.toBe("");
+          expect(arm).not.toMatch(/<\/?[a-z][^>]*>/i);
+        }
       }
     }
   });

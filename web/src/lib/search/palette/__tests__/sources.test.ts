@@ -8,6 +8,7 @@ import { surahRouteContext, type SurahRouteContext } from "$lib/data/quran";
 import { createQuranData, type QuranData } from "$lib/data/quran-data";
 
 import { PaletteGroups } from "../groups";
+import { BUILTIN_PALETTE_SOURCES } from "../index";
 import { parseQuery } from "../query";
 import {
   DEFAULT_SOURCE_LIMIT,
@@ -22,6 +23,7 @@ import { quranRangesSource } from "../sources/quran-ranges";
 import { quranReferenceSource } from "../sources/quran-reference";
 import { quranSurahsSource } from "../sources/quran-surahs";
 import { quranTextSource } from "../sources/quran-text";
+import { settingsRoutesSource } from "../sources/settings-routes";
 import { siteRoutesSource } from "../sources/site-routes";
 import type { PaletteEntry, PaletteQuery, PaletteSource } from "../types";
 
@@ -243,6 +245,28 @@ describe("site.routes source", () => {
     const entries = run(siteRoutesSource, "");
     expect(entries.length).toBeGreaterThan(0);
     expect(entries.every((entry) => entry.score === 0)).toBe(true);
+  });
+});
+
+describe("settings.routes source", () => {
+  it("matches the settings entry by keyword and links the canonical route", () => {
+    for (const raw of ["settings", "storage", "theme", "privacy"]) {
+      expect(hrefs(run(settingsRoutesSource, raw)), raw).toContain("/app/settings");
+    }
+  });
+
+  it("offers the entry unscored on an empty query", () => {
+    const entries = run(settingsRoutesSource, "");
+    expect(labels(entries)).toContain("Settings");
+    expect(entries.every((entry) => entry.score === 0)).toBe(true);
+  });
+
+  it("returns nothing when nothing matches", () => {
+    expect(run(settingsRoutesSource, "zzzzqx")).toHaveLength(0);
+  });
+
+  it("stays registered in the built-in source list", () => {
+    expect(BUILTIN_PALETTE_SOURCES).toContain(settingsRoutesSource);
   });
 });
 

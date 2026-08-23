@@ -10,6 +10,7 @@ export const PaletteGroups = {
   QuranText: { id: "quran-text", label: "Quran text", order: 20 },
   Surahs: { id: "surahs", label: "Surahs", order: 30 },
   Ranges: { id: "ranges", label: "Juz & pages", order: 40 },
+  Settings: { id: "settings", label: "Settings", order: 55 },
   Site: { id: "site", label: "Pages", order: 90 },
   Actions: { id: "actions", label: "Actions", order: 100 },
 } as const satisfies Record<string, PaletteGroup>;

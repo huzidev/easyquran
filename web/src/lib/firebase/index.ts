@@ -14,7 +14,9 @@ export const firebaseConfig: FirebaseOptions = {
 
 export const isConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.appId);
 
-export const FCM_VAPID_KEY = "";
+export const FCM_VAPID_KEY = env.PUBLIC_FCM_VAPID_KEY || "";
+
+export const isMessagingConfigured = isConfigured && Boolean(FCM_VAPID_KEY);
 
 export const API_BASE_URL = (env.PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
 

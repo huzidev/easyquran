@@ -198,6 +198,7 @@
   "reader_notifications_checking": "Checking…",
   "reader_notifications_browser_unsupported": "Not supported on this browser.",
   "reader_notifications_blocked": "Blocked in your browser settings.",
+  "reader_notifications_error": "Couldn't turn on notifications. Try again.",
   "reader_notifications_on": "On — you'll receive notifications.",
   "reader_notifications_off_updates": "Off — enable to get updates.",
   "reader_notifications_off": "Off.",

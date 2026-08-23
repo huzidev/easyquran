@@ -2,7 +2,7 @@
 //
 // Reader shell, sidebar, search, sources, verse tools, offline and update notices, reader SEO.
 //
-// 151 messages. Import this barrel, never
+// 143 messages. Import this barrel, never
 // $lib/paraglide/messages.js — see docs/quran-system.md (Part 2, Message chunking).
 
 export { reader_account } from "$lib/paraglide/messages/reader_account.js";
@@ -54,14 +54,6 @@ export { reader_no_verse_matches } from "$lib/paraglide/messages/reader_no_verse
 export { reader_note_placeholder } from "$lib/paraglide/messages/reader_note_placeholder.js";
 export { reader_note_saved } from "$lib/paraglide/messages/reader_note_saved.js";
 export { reader_note_tafsir } from "$lib/paraglide/messages/reader_note_tafsir.js";
-export { reader_notifications } from "$lib/paraglide/messages/reader_notifications.js";
-export { reader_notifications_blocked } from "$lib/paraglide/messages/reader_notifications_blocked.js";
-export { reader_notifications_browser_unsupported } from "$lib/paraglide/messages/reader_notifications_browser_unsupported.js";
-export { reader_notifications_checking } from "$lib/paraglide/messages/reader_notifications_checking.js";
-export { reader_notifications_off } from "$lib/paraglide/messages/reader_notifications_off.js";
-export { reader_notifications_off_updates } from "$lib/paraglide/messages/reader_notifications_off_updates.js";
-export { reader_notifications_on } from "$lib/paraglide/messages/reader_notifications_on.js";
-export { reader_notifications_unavailable } from "$lib/paraglide/messages/reader_notifications_unavailable.js";
 export { reader_offline } from "$lib/paraglide/messages/reader_offline.js";
 export { reader_offline_cached } from "$lib/paraglide/messages/reader_offline_cached.js";
 export { reader_offline_copy_unavailable } from "$lib/paraglide/messages/reader_offline_copy_unavailable.js";

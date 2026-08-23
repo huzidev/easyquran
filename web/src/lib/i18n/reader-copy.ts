@@ -21,6 +21,7 @@ import {
   footer_whats_inside,
   nav_change_language,
   nav_language,
+  nav_settings,
   skip_to_content,
 } from "$lib/i18n/m/chrome";
 import {
@@ -30,7 +31,6 @@ import {
   reader_arabic_text_size,
   reader_ayah_by_ayah,
   reader_ayahs,
-  reader_blocked,
   reader_bookmark,
   reader_bookmark_verse,
   reader_browse,
@@ -48,12 +48,9 @@ import {
   reader_customize_appearance,
   reader_dark,
   reader_default,
-  reader_disable,
-  reader_dismiss_notification,
   reader_dismiss_update,
   reader_downloading_offline_pack,
   reader_downloading_quran,
-  reader_enable,
   reader_full_surah,
   reader_home_label,
   reader_jump,
@@ -73,14 +70,6 @@ import {
   reader_note_placeholder,
   reader_note_saved,
   reader_note_tafsir,
-  reader_notifications,
-  reader_notifications_blocked,
-  reader_notifications_browser_unsupported,
-  reader_notifications_checking,
-  reader_notifications_off,
-  reader_notifications_off_updates,
-  reader_notifications_on,
-  reader_notifications_unavailable,
   reader_offline,
   reader_offline_cached,
   reader_offline_copy_unavailable,
@@ -92,7 +81,6 @@ import {
   reader_offline_routes,
   reader_offline_title,
   reader_offline_working,
-  reader_open,
   reader_open_note_tafsir,
   reader_open_panel,
   reader_opening,
@@ -170,7 +158,6 @@ import {
   reader_theme,
   reader_toggle_theme,
   reader_translation_unavailable,
-  reader_unsupported,
   reader_your_note,
 } from "$lib/i18n/m/reader";
 import type { FooterResolvedCopy, NavResolvedCopy } from "$lib/i18n/marketing-copy";
@@ -286,22 +273,6 @@ export interface ReaderUiCopy {
     readonly savedOn: (date: string) => string;
     readonly storage: (usage: string, quota: string) => string;
     readonly preparingQuran: string;
-  };
-  readonly notifications: {
-    readonly title: string;
-    readonly enable: string;
-    readonly disable: string;
-    readonly blocked: string;
-    readonly unsupported: string;
-    readonly unavailable: string;
-    readonly checking: string;
-    readonly browserUnsupported: string;
-    readonly blockedDetail: string;
-    readonly on: string;
-    readonly offUpdates: string;
-    readonly off: string;
-    readonly dismiss: string;
-    readonly open: string;
   };
   readonly update: {
     readonly ready: string;
@@ -483,6 +454,7 @@ function createReaderUiCopy(locale: UiLocale): ReaderUiCopy {
       theme: noArgs(reader_theme),
       language: noArgs(nav_language),
       changeLanguage: noArgs(nav_change_language),
+      settings: noArgs(nav_settings),
       themeNames: {
         dark: noArgs(reader_dark),
         light: noArgs(reader_light),
@@ -527,22 +499,6 @@ function createReaderUiCopy(locale: UiLocale): ReaderUiCopy {
       savedOn: (date) => reader_saved_on({ date }, options),
       storage: (usage, quota) => reader_storage({ usage, quota }, options),
       preparingQuran: noArgs(reader_downloading_quran),
-    },
-    notifications: {
-      title: noArgs(reader_notifications),
-      enable: noArgs(reader_enable),
-      disable: noArgs(reader_disable),
-      blocked: noArgs(reader_blocked),
-      unsupported: noArgs(reader_unsupported),
-      unavailable: noArgs(reader_notifications_unavailable),
-      checking: noArgs(reader_notifications_checking),
-      browserUnsupported: noArgs(reader_notifications_browser_unsupported),
-      blockedDetail: noArgs(reader_notifications_blocked),
-      on: noArgs(reader_notifications_on),
-      offUpdates: noArgs(reader_notifications_off_updates),
-      off: noArgs(reader_notifications_off),
-      dismiss: noArgs(reader_dismiss_notification),
-      open: noArgs(reader_open),
     },
     update: {
       ready: noArgs(reader_new_version_ready),

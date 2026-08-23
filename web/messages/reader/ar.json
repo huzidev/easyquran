@@ -198,6 +198,7 @@
   "reader_notifications_checking": "جارٍ التحقق…",
   "reader_notifications_browser_unsupported": "هذا المتصفح لا يدعمها.",
   "reader_notifications_blocked": "محظورة في إعدادات المتصفح.",
+  "reader_notifications_error": "تعذّر تفعيل الإشعارات. حاول مجددًا.",
   "reader_notifications_on": "مفعّلة — ستصلك الإشعارات.",
   "reader_notifications_off_updates": "متوقفة — فعّلها لتلقي التحديثات.",
   "reader_notifications_off": "متوقفة.",

@@ -63,6 +63,10 @@ services:
       # $env/dynamic/public (NOT build-baked), so these live here, not in build args.
       PUBLIC_API_BASE_URL: https://${DOMAIN}/api
       PUBLIC_QURAN_API_BASE: https://${DOMAIN}/api/quran
+      # Firebase Cloud Messaging web-push VAPID key (Firebase console → Cloud
+      # Messaging → WebPush certificates). Empty until provisioned: the UI then
+      # shows "notifications not configured" instead of enabling a dead flow.
+      PUBLIC_FCM_VAPID_KEY: ${PUBLIC_FCM_VAPID_KEY:-}
       QURAN_SSR_CACHE_DIR: /app/cache/quran-ssr
     depends_on:
       api:

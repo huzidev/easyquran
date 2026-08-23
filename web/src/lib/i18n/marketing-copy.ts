@@ -3,6 +3,8 @@
 // Resolved copy lives in the per-namespace modules — chrome-copy.ts, appearance-copy.ts,
 // landing-copy.ts. See docs/quran-system.md (Part 2, Message chunking).
 import type { IconName } from "$lib/components/icon";
+import type { NotificationsCopy } from "$lib/components/notifications/notifications-copy";
+import type { OfflinePackCopy } from "$lib/components/status/offline-pack-copy";
 import type { AccentId, SurfaceId, ThemeMode } from "$lib/config/site";
 import { SUPPORTED_UI_LOCALES, UI_LOCALES, uiDirection, type UiLocale } from "$lib/i18n/locales";
 import { marketingHref } from "$lib/i18n/marketing";
@@ -32,6 +34,7 @@ export interface NavResolvedCopy {
   searchQuran: string;
   account: string;
   signIn: string;
+  settings: string;
   openPanel: string;
   closePanel: string;
   sitePanel: string;
@@ -82,6 +85,8 @@ export interface TweaksResolvedCopy {
   accent: string;
   customColours: string;
   clear: string;
+  offlinePack?: OfflinePackCopy;
+  notifications?: NotificationsCopy;
   seedNames: Record<"bg" | "accent" | "pop", string>;
   colourLabel: string;
   accentOptionLabel: (name: string) => string;

@@ -13,12 +13,16 @@ import {
   writeJSON,
 } from "$lib/storage";
 
+import { ARABIC_FONT_IDS, type ArabicFontId } from "$lib/config/reader-fonts";
+
 import {
   ARABIC_FONT_MAX,
   ARABIC_FONT_MIN,
   NOTE_PERSIST_DEBOUNCE_MS,
   SURAH_COUNT,
   READER_MODE_VALUES,
+  TRANSLATION_FONT_MAX,
+  TRANSLATION_FONT_MIN,
   type Persisted,
   type ReaderCore,
   type ReaderMode,
@@ -35,6 +39,8 @@ export function decodeReader(raw: unknown): Partial<Persisted> {
   const stored = asObject(raw);
   if (!stored) return {};
 
+  if (stored.v !== undefined && !asNumber(stored.v, 1, Number.POSITIVE_INFINITY)) return {};
+
   const out: Partial<Persisted> = {};
 
   const current = asNumber(stored.current, 1, SURAH_COUNT);
@@ -42,6 +48,16 @@ export function decodeReader(raw: unknown): Partial<Persisted> {
 
   const fontSize = asNumber(stored.fontSize, ARABIC_FONT_MIN, ARABIC_FONT_MAX);
   if (fontSize !== undefined) out.fontSize = fontSize;
+
+  const arabicFont = asLiteral<ArabicFontId>(stored.arabicFont, ARABIC_FONT_IDS);
+  if (arabicFont) out.arabicFont = arabicFont;
+
+  const translationSize = asNumber(
+    stored.translationSize,
+    TRANSLATION_FONT_MIN,
+    TRANSLATION_FONT_MAX,
+  );
+  if (translationSize !== undefined) out.translationSize = translationSize;
 
   const mode = asLiteral<ReaderMode>(stored.mode, READER_MODE_VALUES);
   if (mode) out.mode = mode;
@@ -109,9 +125,21 @@ export function decodeReader(raw: unknown): Partial<Persisted> {
   return out;
 }
 
+function applyPresentation(s: ReaderCore["s"]): void {
+  applyReaderPresentation(
+    s.mode,
+    s.fontSize,
+    s.arabicFont,
+    s.translationSize,
+    s.translationFamily,
+  );
+}
+
 function applyPersisted(s: ReaderCore["s"], p: Partial<Persisted>): void {
   if (p.current !== undefined) s.current = p.current;
   if (p.fontSize !== undefined) s.fontSize = p.fontSize;
+  if (p.arabicFont !== undefined) s.arabicFont = p.arabicFont;
+  if (p.translationSize !== undefined) s.translationSize = p.translationSize;
   if (p.mode !== undefined) s.mode = p.mode;
   if (p.bookmarks !== undefined) s.bookmarks = p.bookmarks;
   if (p.notes !== undefined) s.notes = p.notes;
@@ -148,6 +176,8 @@ export function createReaderPersistence(core: ReaderCore): ReaderPersistence {
       v,
       current,
       fontSize,
+      arabicFont,
+      translationSize,
       mode,
       bookmarks,
       notes,
@@ -160,6 +190,8 @@ export function createReaderPersistence(core: ReaderCore): ReaderPersistence {
       v,
       current,
       fontSize,
+      arabicFont,
+      translationSize,
       mode,
       bookmarks,
       notes,
@@ -182,11 +214,11 @@ export function createReaderPersistence(core: ReaderCore): ReaderPersistence {
       applyPersisted(core.s, stored);
       const adoptedMode = modeOverride && modeOverride !== core.s.mode ? modeOverride : null;
       if (adoptedMode) core.s.mode = adoptedMode;
-      applyReaderPresentation(core.s.mode, core.s.fontSize);
+      applyPresentation(core.s);
       teardowns.push(
         onStorageKey(STORAGE_KEY, () => {
           applyPersisted(core.s, decodeReader(readJSON(STORAGE_KEY)));
-          applyReaderPresentation(core.s.mode, core.s.fontSize);
+          applyPresentation(core.s);
         }),
       );
       teardowns.push(

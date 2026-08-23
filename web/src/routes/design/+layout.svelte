@@ -21,9 +21,9 @@
   const tabOff = "border-transparent text-fg-3 hover:text-fg";
 
   const loadTweaksCopy = async () => {
-    const { resolveAppearanceCopy } = await import("$lib/i18n/appearance-copy");
+    const { getReaderSettingsCopy } = await import("$lib/i18n/reader-settings-copy");
     const locale = getLocale();
-    return resolveAppearanceCopy(isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
+    return getReaderSettingsCopy(isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
   };
 </script>
 

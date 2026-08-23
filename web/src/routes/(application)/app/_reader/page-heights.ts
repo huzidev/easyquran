@@ -7,14 +7,15 @@ export function widthBucket(width: number): number {
 
 /**
  * Measured page heights keyed by the layout inputs that can change them
- * (reader mode, Arabic font size, container width bucket), so spacers keep an
- * accurate height across layout changes instead of resetting to an estimate.
+ * (reader mode, Arabic font size/family, translation size/family, container
+ * width bucket), so spacers keep an accurate height across layout changes
+ * instead of resetting to an estimate.
  */
 export class PageHeightCache {
   #heights = new SvelteMap<string, SvelteMap<number, number>>();
 
   #key(width: number): string {
-    return `${reader.mode}:${reader.arabicSizePx}:${widthBucket(width)}`;
+    return `${reader.mode}:${reader.arabicSizePx}:${reader.arabicFont}:${reader.translationSizePx}:${reader.translationFamily}:${widthBucket(width)}`;
   }
 
   #defaultHeight(width: number): number {

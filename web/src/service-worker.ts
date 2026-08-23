@@ -9,8 +9,11 @@ import {
   UPDATE_TAKEOVER,
   PURGE_USER_CACHES,
   PURGE_ACK,
+  STORAGE_STATS,
+  STORAGE_STATS_ACK,
   SW_BROADCAST_CHANNEL,
   type ClientToSwMessage,
+  type StorageLayerStats,
   type SwToClientMessage,
 } from "./lib/offline/messages";
 import { openIdb, idbGet, idbPut, idbDelete, idbScan } from "./lib/workers/idb";
@@ -199,6 +202,60 @@ export async function purgeUserCachesHandler(port?: MessagePort): Promise<void> 
       port.postMessage({ type: PURGE_ACK } satisfies SwToClientMessage);
     } catch {}
   }
+}
+
+const EMPTY_LAYER_STATS: StorageLayerStats = Object.freeze({ entries: 0, bytes: 0 });
+
+async function measurePagesCache(): Promise<StorageLayerStats> {
+  const pages = await caches.open(PAGES_CACHE);
+  const reqs = [...(await pages.keys())];
+  const sizes = reqs.map(() => 0);
+  await pool(reqs, MAINTENANCE_CONCURRENCY, async (req, index) => {
+    const res = await pages.match(req).catch(() => undefined);
+    if (!res) return;
+    sizes[index] = await measureResponseSize(res);
+  });
+  let bytes = 0;
+  for (const size of sizes) bytes += size;
+  return { entries: reqs.length, bytes };
+}
+
+async function measureDataCache(): Promise<StorageLayerStats> {
+  const meta = await rawDataMetaScan();
+  const data = await caches.open(DATA_CACHE);
+  const cacheKeys = new Set<string>();
+  for (const req of await data.keys()) cacheKeys.add(normalizeDataKey(req.url));
+  let bytes = 0;
+  let entries = 0;
+  for (const [key, entry] of meta) {
+    if (!cacheKeys.has(key)) continue;
+    bytes += entry.sizeBytes;
+    entries += 1;
+  }
+  return { entries, bytes };
+}
+
+export async function computeStorageStats(): Promise<{
+  pages: StorageLayerStats;
+  data: StorageLayerStats;
+}> {
+  const [pages, data] = await Promise.all([
+    measurePagesCache().catch(() => EMPTY_LAYER_STATS),
+    measureDataCache().catch(() => EMPTY_LAYER_STATS),
+  ]);
+  return { pages, data };
+}
+
+export async function storageStatsHandler(port?: MessagePort): Promise<void> {
+  const stats = await computeStorageStats();
+  if (!port) return;
+  try {
+    port.postMessage({
+      type: STORAGE_STATS_ACK,
+      pages: stats.pages,
+      data: stats.data,
+    } satisfies SwToClientMessage);
+  } catch {}
 }
 
 export async function enforceDataBoundsInner(): Promise<void> {
@@ -401,6 +458,9 @@ sw.addEventListener("message", (event) => {
       return;
     case PURGE_USER_CACHES:
       void purgeUserCachesHandler(event.ports[0]);
+      return;
+    case STORAGE_STATS:
+      void storageStatsHandler(event.ports[0]);
       return;
   }
 });

@@ -83,6 +83,15 @@
         "reader_custom_colours",
         "reader_data_privacy",
         "reader_mode",
+        "reader_notifications",
+        "reader_notifications_blocked",
+        "reader_notifications_browser_unsupported",
+        "reader_notifications_checking",
+        "reader_notifications_error",
+        "reader_notifications_off",
+        "reader_notifications_off_updates",
+        "reader_notifications_on",
+        "reader_notifications_unavailable",
         "reader_off",
         "reader_on",
         "reader_performance",
@@ -108,6 +117,11 @@
       "id": "reader",
       "description": "Reader shell, sidebar, search, sources, verse tools, offline and update notices, reader SEO.",
       "prefixes": ["reader"]
+    },
+    {
+      "id": "settings",
+      "description": "Settings page: storage, reading, privacy and account sections. Lazy: downloaded whole when the settings route loads or the reader appearance panel opens (offline-pack + notification toggle copy). The marketing appearance panel and the settings privacy section reuse reader_* notifications strings instead and never pull this namespace.",
+      "prefixes": ["settings"]
     },
     {
       "id": "auth",

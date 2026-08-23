@@ -1,4 +1,5 @@
 import type { VerseKey } from "$lib/data/quran";
+import type { ArabicFontId, TranslationFamily } from "$lib/config/reader-fonts";
 
 import { createAnnotations } from "./annotations.svelte";
 import {
@@ -39,6 +40,13 @@ export interface ReaderApi {
   readonly arabicSizePx: string;
   bigger(): void;
   smaller(): void;
+  readonly arabicFont: ArabicFontId;
+  setArabicFont(id: ArabicFontId): void;
+  readonly translationSizePx: string;
+  growTranslation(): void;
+  shrinkTranslation(): void;
+  readonly translationFamily: TranslationFamily;
+  setTranslationFamily(family: TranslationFamily): void;
   readonly mode: ReaderMode;
   readonly isVerseMode: boolean;
   readonly isReadingMode: boolean;
@@ -118,6 +126,19 @@ export function createReader(): ReaderApi {
     },
     bigger: () => settings.bigger(),
     smaller: () => settings.smaller(),
+    get arabicFont() {
+      return settings.arabicFont;
+    },
+    setArabicFont: (id: ArabicFontId) => settings.setArabicFont(id),
+    get translationSizePx() {
+      return settings.translationSizePx;
+    },
+    growTranslation: () => settings.growTranslation(),
+    shrinkTranslation: () => settings.shrinkTranslation(),
+    get translationFamily() {
+      return settings.translationFamily;
+    },
+    setTranslationFamily: (family: TranslationFamily) => settings.setTranslationFamily(family),
     get mode() {
       return settings.mode;
     },

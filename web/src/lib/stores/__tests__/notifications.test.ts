@@ -13,7 +13,7 @@ const { messaging, firebaseCore, analytics } = vi.hoisted(() => ({
     deleteFcmToken: vi.fn<() => Promise<void>>(),
     onForegroundMessage: vi.fn<(cb: (p: MessagePayload) => void) => Promise<Unsubscribe>>(),
   },
-  firebaseCore: { isConfigured: true },
+  firebaseCore: { isConfigured: true, isMessagingConfigured: true },
   analytics: { track: vi.fn<() => void>() },
 }));
 
@@ -23,9 +23,21 @@ vi.mock("$lib/firebase/messaging", () => messaging);
 vi.mock("$lib/firebase/analytics", () => analytics);
 
 import { createNotifications } from "$lib/stores/notifications.svelte";
+import { notificationsStatus } from "$lib/components/notifications/notifications-copy";
 
 const STORAGE_KEY = "easyquran.fcm";
 let foregroundCb: ((p: MessagePayload) => void) | undefined;
+
+const statusMessages = {
+  unavailable: "unavailable",
+  checking: "checking",
+  browserUnsupported: "browser-unsupported",
+  blocked: "blocked",
+  error: "error",
+  on: "on",
+  offUpdates: "off-updates",
+  off: "off",
+};
 
 function resetMocks(): void {
   messaging.getPermissionState.mockReset();
@@ -38,6 +50,7 @@ function resetMocks(): void {
   messaging.deleteFcmToken.mockReset();
   messaging.onForegroundMessage.mockReset();
   analytics.track.mockReset();
+  firebaseCore.isMessagingConfigured = true;
   messaging.getPermissionState.mockReturnValue("granted");
   messaging.isMessagingSupported.mockResolvedValue(true);
   messaging.initMessaging.mockResolvedValue(null);
@@ -235,5 +248,64 @@ describe("NotificationsStore.syncPermission", () => {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     expect(stored).toEqual({ token: null, subscribed: false });
     store.dispose();
+  });
+});
+
+describe("NotificationsStore capability split", () => {
+  it("marks the store configured and supported on the Chrome-capable path", async () => {
+    const store = createNotifications();
+    expect(store.supported).toBe(null);
+    store.hydrate();
+    await flush();
+    expect(store.configured).toBe(true);
+    expect(store.supported).toBe(true);
+  });
+
+  it("reports unavailable when messaging is not configured even though the probe passes", async () => {
+    firebaseCore.isMessagingConfigured = false;
+    const store = createNotifications();
+    store.hydrate();
+    await flush();
+    expect(store.supported).toBe(true);
+    expect(store.configured).toBe(false);
+    const label = notificationsStatus(statusMessages)({
+      configured: store.configured,
+      supported: store.supported,
+      permission: store.permission,
+      subscribed: store.subscribed,
+      pushError: store.pushError,
+    });
+    expect(label).toBe("unavailable");
+  });
+
+  it("re-runs the support probe on visible tab return while unsupported", async () => {
+    messaging.isMessagingSupported.mockResolvedValueOnce(false).mockResolvedValue(true);
+    const store = createNotifications();
+    store.hydrate();
+    await flush();
+    expect(store.supported).toBe(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flush();
+    expect(store.supported).toBe(true);
+  });
+
+  it("flags pushError when the token fetch fails and clears it on a later success", async () => {
+    messaging.getFcmToken.mockResolvedValue(null);
+    const store = createNotifications();
+    await expect(store.subscribe()).resolves.toBe(false);
+    expect(store.pushError).toBe(true);
+    expect(
+      notificationsStatus(statusMessages)({
+        configured: true,
+        supported: true,
+        permission: store.permission,
+        subscribed: store.subscribed,
+        pushError: store.pushError,
+      }),
+    ).toBe("error");
+
+    messaging.getFcmToken.mockResolvedValue("tok-retry");
+    await expect(store.subscribe()).resolves.toBe(true);
+    expect(store.pushError).toBe(false);
   });
 });

@@ -462,6 +462,12 @@ async function ensureOpfsArtifact(
   }
 }
 
+const sessionArtifacts = new Map<string, number>();
+
+export function forgetSessionArtifact(id: string): void {
+  sessionArtifacts.delete(id);
+}
+
 async function ensureIdbArtifact(
   spec: DownloadableSpec,
   dl: DownloadSpec,
@@ -474,6 +480,7 @@ async function ensureIdbArtifact(
   if (cached) {
     try {
       await verifyBytes(cached, dl);
+      forgetSessionArtifact(spec.id);
       await writeIdbArtifactMetadata(spec.id, spec.id, cached.byteLength);
       void stampLastUsed(spec.id);
       return { bytes: cached, store: "idb", downloaded: false };
@@ -482,7 +489,11 @@ async function ensureIdbArtifact(
   const bytes = prefetched ?? (await downloadBytes(dl, progress));
   await runStagedValidator(validate, bytes, spec);
   const persisted = await store.put(spec.id, spec.id, bytes);
-  if (!persisted) return { bytes, store: "session", downloaded: true };
+  if (!persisted) {
+    sessionArtifacts.set(spec.id, bytes.byteLength);
+    return { bytes, store: "session", downloaded: true };
+  }
+  forgetSessionArtifact(spec.id);
   await writeIdbArtifactMetadata(spec.id, spec.id, bytes.byteLength);
   await stampLastUsed(spec.id);
   return { bytes, store: "idb", downloaded: true };
@@ -620,6 +631,9 @@ export async function inspectCachedArtifacts(): Promise<CacheInspection> {
   const filtered = filterSourceFiles({ pointers, files });
   const opfs = await listOpfsArtifacts(files, pointers);
   const byId = new Map<string, CachedArtifactInfo>();
+  for (const [id, sizeBytes] of sessionArtifacts) {
+    byId.set(id, { id, store: "session", tag: id, sizeBytes });
+  }
   for (const info of idb) byId.set(info.id, info);
   for (const info of opfs) byId.set(info.id, info);
   return {
@@ -640,6 +654,7 @@ export async function deleteCachedArtifact(id: string, tag: string): Promise<voi
   if (hasOpfs()) {
     await removeOpfsFile(tag, activeFileName(id));
   }
+  forgetSessionArtifact(id);
   await clearPointer(id);
   try {
     await runTxVoid(await openIdb(QURAN_DB, QURAN_STORE), QURAN_STORE, "readwrite", (s) => {

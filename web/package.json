@@ -31,7 +31,6 @@
   },
   "dependencies": {
     "@fontsource-variable/figtree": "^5.3.0",
-    "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@fontsource/amiri": "^5.2.5",
     "@sqlite.org/sqlite-wasm": "3.53.0-build1",
@@ -48,6 +47,8 @@
     "valibot": "^1.4.2"
   },
   "devDependencies": {
+    "@fontsource/noto-naskh-arabic": "^5.3.0",
+    "@fontsource/scheherazade-new": "^5.3.0",
     "@inlang/paraglide-js": "2.23.2",
     "@inlang/plugin-message-format": "4.4.1",
     "@internationalized/date": "^3.12.2",

@@ -324,7 +324,7 @@
     }, true);
   }
 
-  function changeFontSize(change: () => void): void {
+  function changeTypography(change: () => void): void {
     void preserveViewport(() => {
       virtualCenterPage = visibleLocalPage;
       change();
@@ -698,6 +698,18 @@
     lastRouteKey = key;
   });
 
+  let lastTypography: string | null = null;
+  $effect(() => {
+    const typography = `${reader.arabicFont}:${reader.arabicSizePx}:${reader.translationSizePx}:${reader.translationFamily}`;
+    if (lastTypography === typography) return;
+    const firstRun = lastTypography === null;
+    lastTypography = typography;
+    if (firstRun) return;
+    void preserveViewport(() => {
+      virtualCenterPage = visibleLocalPage;
+    }, true);
+  });
+
   onMount(() => {
     clientMounted = true;
     lastScrollY = window.scrollY;
@@ -768,8 +780,8 @@
       {visibleLocalPage}
       {clientMounted}
       onChangeMode={changeMode}
-      onSmaller={() => changeFontSize(() => reader.smaller())}
-      onBigger={() => changeFontSize(() => reader.bigger())}
+      onSmaller={() => changeTypography(() => reader.smaller())}
+      onBigger={() => changeTypography(() => reader.bigger())}
     />
 
     <div class="sr-only" aria-live="polite">{stackedAnnouncement}</div>
@@ -793,7 +805,7 @@
                 {copy.shell.surahPageTitle(initial.surah.name, pageData.page.localPage, initial.pageCount)}
               </h2>
               {#if pageData.page.startAyah === 1 && headerText(pageData.normalization)}
-                <p dir="rtl" lang="ar" class="surah-opener py-3 text-center font-arabic text-fg-3">
+                <p dir="rtl" lang="ar" class="surah-opener py-3 text-center text-fg-3">
                   {headerText(pageData.normalization)}
                 </p>
               {/if}
@@ -869,6 +881,10 @@
     flex-direction: column;
   }
 
+  .surah-opener {
+    font-family: var(--reader-arabic-family, var(--font-arabic));
+  }
+
   :global([data-reader-mode="reading"]) .reader-pages .surah-page {
     border-bottom: 1px solid var(--line);
     padding: 2rem 1.25rem;
@@ -887,7 +903,7 @@
     direction: rtl;
     text-align: justify;
     text-align-last: center;
-    font-family: var(--font-arabic);
+    font-family: var(--reader-arabic-family, var(--font-arabic));
     line-height: 2.35;
     word-spacing: 0.14em;
   }

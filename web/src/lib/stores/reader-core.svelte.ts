@@ -1,4 +1,5 @@
 import type { VerseKey } from "$lib/data/quran";
+import type { ArabicFontId, TranslationFamily } from "$lib/config/reader-fonts";
 import { SvelteMap } from "svelte/reactivity";
 
 export const BrowseMode = {
@@ -30,6 +31,8 @@ export interface Persisted {
   v: number;
   current: number;
   fontSize: number;
+  arabicFont: ArabicFontId;
+  translationSize: number;
   mode: ReaderMode;
   bookmarks: Record<VerseKey, boolean>;
   notes: Record<VerseKey, string>;
@@ -40,17 +43,22 @@ export interface Persisted {
 }
 
 export interface ReaderState extends Persisted {
+  translationFamily: TranslationFamily;
   query: string;
   browse: BrowseMode;
   openNote: VerseKey | null;
   pendingAnchor: LastReadAnchor | null;
 }
 
-export const READER_SCHEMA_VERSION = 2;
+export const READER_SCHEMA_VERSION = 3;
 
 export const ARABIC_FONT_MIN = 22;
 export const ARABIC_FONT_MAX = 56;
 export const ARABIC_FONT_STEP = 3;
+
+export const TRANSLATION_FONT_MIN = 13;
+export const TRANSLATION_FONT_MAX = 28;
+export const TRANSLATION_FONT_STEP = 1;
 
 export const NOTE_PERSIST_DEBOUNCE_MS = 400;
 
@@ -60,6 +68,9 @@ export const READER_DEFAULTS: ReaderState = {
   v: READER_SCHEMA_VERSION,
   current: 1,
   fontSize: 33,
+  arabicFont: "amiri",
+  translationSize: 17,
+  translationFamily: "sans",
   mode: "verse",
   bookmarks: {},
   notes: {},

@@ -31,6 +31,13 @@
           if (typeof r.fontSize === "number" && r.fontSize >= 22 && r.fontSize <= 56) {
             d.style.setProperty("--reader-arabic-size", r.fontSize + "px");
           }
+          if (
+            typeof r.translationSize === "number" &&
+            r.translationSize >= 13 &&
+            r.translationSize <= 28
+          ) {
+            d.style.setProperty("--reader-translation-size", r.translationSize + "px");
+          }
           if (r.lastRead && typeof r.lastRead.num === "number") {
             d.dataset.readerLastRead = "true";
           }

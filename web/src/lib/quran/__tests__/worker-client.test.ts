@@ -7,7 +7,7 @@ import {
 } from "$lib/data/quran-types";
 import type { WorkerOutbound, WorkerRequest } from "$lib/quran/protocol";
 import { SearchHitKind, SearchProvider } from "$lib/quran/search/types";
-import { quranWorker } from "$lib/quran/worker-client";
+import { quranWorker, StorageAdminError } from "$lib/quran/worker-client";
 import { QURAN_DATA } from "$lib/server/quran-data";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -300,5 +300,101 @@ describe("quranWorker request settlement", () => {
     await assertion;
     expect(fake.terminated).toBe(true);
     expect(quranWorker.ready).toBe(false);
+  });
+});
+
+describe("quranWorker storage admin wire contract", () => {
+  it("maps the busy wire error to a StorageAdminError", async () => {
+    const fake = await startReady();
+    const p = quranWorker.deleteTranslation("en.sahih");
+    const req = fake.posted.at(-1)!;
+    expect(req).toMatchObject({ type: "deleteArtifact", sourceId: "en.sahih" });
+    const assertion = expect(p).rejects.toMatchObject({
+      name: "StorageAdminError",
+      failure: "busy",
+    });
+    fake.emit("message", { id: req.id, ok: false, error: "busy" });
+    await assertion;
+  });
+
+  it("maps the arabic wire error to a StorageAdminError", async () => {
+    const fake = await startReady();
+    const p = quranWorker.deleteTranslation("uthmani");
+    const req = fake.posted.at(-1)!;
+    const assertion = expect(p).rejects.toBeInstanceOf(StorageAdminError);
+    fake.emit("message", { id: req.id, ok: false, error: "arabic" });
+    await assertion;
+  });
+
+  it("passes an unrelated wire error through untouched", async () => {
+    const fake = await startReady();
+    const messageCase = quranWorker.deleteTranslation("en.sahih");
+    const messageReq = fake.posted.at(-1)!;
+    const messageAssertion = expect(messageCase).rejects.toThrow("engine not ready");
+    fake.emit("message", { id: messageReq.id, ok: false, error: "engine not ready" });
+    await messageAssertion;
+
+    const instanceCase = quranWorker.deleteTranslation("ur.jalandhry");
+    const instanceReq = fake.posted.at(-1)!;
+    const instanceAssertion = expect(instanceCase).rejects.not.toBeInstanceOf(StorageAdminError);
+    fake.emit("message", { id: instanceReq.id, ok: false, error: "engine not ready" });
+    await instanceAssertion;
+  });
+
+  it("decodes a valid artifact list", async () => {
+    const fake = await startReady();
+    const p = quranWorker.listArtifacts();
+    const req = fake.posted.at(-1)!;
+    expect(req).toMatchObject({ type: "listArtifacts" });
+    const assertion = expect(p).resolves.toEqual([
+      { id: "en.sahih", store: "opfs", tag: "en.sahih", sizeBytes: 2048, lastUsed: 1234 },
+      { id: "fr.hamid", store: "idb", tag: "fr.hamid", sizeBytes: 4096, lastUsed: null },
+      { id: "ur.jaw", store: "session", tag: "ur.jaw", sizeBytes: 1024, lastUsed: null },
+    ]);
+    fake.emit("message", {
+      id: req.id,
+      ok: true,
+      result: [
+        { id: "en.sahih", store: "opfs", tag: "en.sahih", sizeBytes: 2048, lastUsed: 1234 },
+        { id: "fr.hamid", store: "idb", tag: "fr.hamid", sizeBytes: 4096, lastUsed: null },
+        { id: "ur.jaw", store: "session", tag: "ur.jaw", sizeBytes: 1024, lastUsed: null },
+      ],
+    });
+    await assertion;
+  });
+
+  it("rejects a malformed artifact list", async () => {
+    const fake = await startReady();
+    const p = quranWorker.listArtifacts();
+    const req = fake.posted.at(-1)!;
+    const assertion = expect(p).rejects.toThrow("malformed artifact list");
+    fake.emit("message", {
+      id: req.id,
+      ok: true,
+      result: [{ id: "en.sahih", store: "bogus", tag: "en.sahih", sizeBytes: 2048, lastUsed: null }],
+    });
+    await assertion;
+  });
+
+  it("rejects every malformed artifact field at the boundary", async () => {
+    const fake = await startReady();
+    const wellFormed = { id: "en.sahih", store: "opfs", tag: "en.sahih", sizeBytes: 2048, lastUsed: null };
+    const cases: unknown[] = [
+      "not-an-array",
+      { not: "an array" },
+      [{ ...wellFormed, id: "" }],
+      [{ ...wellFormed, tag: 7 }],
+      [{ ...wellFormed, sizeBytes: Number.NaN }],
+      [{ ...wellFormed, sizeBytes: "2048" }],
+      [{ ...wellFormed, lastUsed: "1234" }],
+      [{ ...wellFormed, lastUsed: Number.POSITIVE_INFINITY }],
+    ];
+    for (const result of cases) {
+      const p = quranWorker.listArtifacts();
+      const req = fake.posted.at(-1)!;
+      const assertion = expect(p).rejects.toThrow("malformed artifact list");
+      fake.emit("message", { id: req.id, ok: true, result });
+      await assertion;
+    }
   });
 });

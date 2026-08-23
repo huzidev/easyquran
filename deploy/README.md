@@ -255,6 +255,7 @@ from `DOMAIN`, and the unused `INTERNAL_API_BASE_URL` is deleted.
 |---|---|---|
 | Browser | `PUBLIC_API_BASE_URL` in compose | `https://${DOMAIN}/api` (runtime `$env/dynamic/public`, derived from `DOMAIN`) |
 | Browser Quran | `PUBLIC_QURAN_API_BASE` in compose | `https://${DOMAIN}/api/quran` (runtime, derived) |
+| Browser FCM | `PUBLIC_FCM_VAPID_KEY` in compose | Firebase console → Cloud Messaging → WebPush certificate key (runtime; empty = notifications show "not configured") |
 | SSR Quran | `INTERNAL_QURAN_API_BASE` in compose | `http://api:8888/quran` (co-located invariant, literal) |
 
 `PUBLIC_*` are read at runtime via `$env/dynamic/public` (not build-baked), so

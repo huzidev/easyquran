@@ -17,7 +17,8 @@ export function getPermissionState(): PermissionState {
 }
 
 export async function isMessagingSupported(): Promise<boolean> {
-  if (!browser || !isConfigured || !FCM_VAPID_KEY) return false;
+  if (!browser) return false;
+  if (!isConfigured || !FCM_VAPID_KEY) return false;
   if (
     !("serviceWorker" in navigator) ||
     !("PushManager" in window) ||

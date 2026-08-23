@@ -446,3 +446,87 @@ Each shippable; gates per milestone: `pnpm check && pnpm lint && pnpm test && pn
   manual pre-push floor.
 - **Multi-writer reader blob** — existing debounced last-write-wins window, now with a
   second writer; noted, not redesigned.
+
+---
+
+## 12. Delivery divergences (recorded after implementation)
+
+Where shipped code departs from the sections above, current code wins; the reasons:
+
+1. **Route is SSR, not prerendered.** §1 assumed a load-free prerendered page. Reality:
+   `app/+layout.server.ts` has a server load that cascades, so a prerendered settings page
+   emits `/app/settings/__data.json` and `gen-offline-pack.ts` throws on the `/app/` prefix.
+   Shipped: `+page.ts` with `export const prerender = false` (SSR, same delivery class as
+   the translated reader routes — consistent with the project's standing divergence away
+   from SSG for app routes). Page itself stays load-free.
+2. **Localized settings URLs do not exist.** The plan's "hooks reroute already matches
+   `settings`" claim is true of the pattern but `hooks.server.ts` 404s non-canonical reader
+   locales and `parseReaderPath("/app/settings")` is null, so `/{en,ar}/app/settings` is not
+   published. All entries (Nav row, palette, `Mod+,`) use canonical `/app/settings`; the
+   shared locale switcher falls back to the localized reader home while on settings.
+3. **`?mode=`/`?more=` suppression** gates on `page.route.id` ending `/app/settings`, not
+   `routeContextFromParams` presence (the latter always returns a context and would also
+   suppress `?mode=` sync on `/app` home).
+4. **Palette/Nav labels stay English** (hardcoded-label precedent in palette sources and
+   Nav chrome copy injection); localizing palette entries remains a separate product
+   decision. Palette hrefs use the canonical generated `Pathname` — `resolveHref()` already
+   applies the base, so wrapping in `publicHref` would double-prefix.
+5. **`OfflinePackCopy` lives in `offline-pack-copy.ts`**, not the component's module script —
+   oxlint cannot resolve type exports from `.svelte` module scripts (svelte-check can). The
+   global overlay sibling is `OfflinePackBar.svelte` (the plan's `DownloadBar` name was
+   already taken by the Quran-scripts downloader).
+6. **`translationFamily` is session-only** (ReaderState, not Persisted) per §3.3's field
+   list — it survives navigation but resets to sans on reload. Persisting it means schema
+   v4.
+7. **SW pages stats measure `eq-pages-v1` directly** (cache keys + bodies), not the recency
+   map — recency also holds shell-hit keys absent from the cache and carries no byte sizes;
+   cache-direct is the same accounting `trimPages` itself uses.
+8. **Worker admin handlers are test-exposed via `__artifactAdminTestHooks`** (following the
+   existing `assertStaged*` precedent): driving the real message loop in vitest would
+   require a full wasm-sqlite boot of every planned Arabic source. The handlers themselves
+   are thin compositions over the tested `listCachedArtifacts`/`deleteCachedArtifact` path.
+9. **`reader.svelte.ts` gained additive passthroughs** (`arabicFont`, `translationSizePx`,
+   `translationFamily`) so `ReadingSection`/`SettingsDoc` can reach the new axes through the
+   existing `ReaderApi` — no logic moved.
+10. **Font re-registration on boot:** `applyReaderPresentation` calls `loadArabicFont` for
+    non-default fonts on every apply (hydrate + cross-tab re-apply), so a persisted
+    Scheherazade/Noto selection survives reloads. First paint still shows Amiri until the
+    lazy woff2 lands — inherent to keeping alternate mushaf bytes out of the bundle.
+11. **No pre-paint arabicFont mirror in `app.html`.** The font-id allowlist mirror that
+    briefly shipped there was removed as dead code: the `data-arabic-font` write was
+    unconsumed by CSS, alternate-font bytes lazy-load at hydrate, and
+    `applyReaderPresentation` owns the `data-arabic-font` and `--reader-arabic-family`
+    writes (§3.2 already attributes the dataset to it). First paint is Amiri as in
+    divergence 10, and the literal-sync guard (`reader-fonts.test.ts`) pins the mirror's
+    absence — no `arabicFont` string, no `--reader-arabic-family`, no font-id literals in
+    `app.html` — alongside the `translationSize`/`fontSize` bounds it still mirrors.
+12. **Byte-unit wording.** `formatBytes` keeps Latin unit symbols (MB/GB) in the Arabic UI —
+    unit symbols are standard in Arabic technical copy and match the ICU `{entries}` Latin
+    digits used elsewhere; catalog prose keeps Arabic-script units (ميغابايت).
+13. **The purge no-controller window fallback (§2.5) was dropped.** "Clear cached pages &
+    data" stays a worker-message-only path (`purgeUserCaches()`); when
+    `navigator.serviceWorker.controller === null` the button renders permanently disabled
+    with the unavailable reason instead of falling back to a window-side
+    `caches.delete("eq-pages-v1"/"eq-data-v1")`. Rationale: duplicating the cache-name list
+    on the main thread is a second source of truth for what user action may delete, and the
+    no-controller state is session-transient (first claimed load ends it). §11's "window
+    fallback gated to exactly that case" risk note is therefore resolved by the disabled UI
+    alone.
+14. **§9 item 7's `lazy-sections.test.ts` raw-source chunk guard shipped as
+    `route-isolation.test.ts` with the opposite chunk contract:** test 2 pins that
+    `+page.svelte` statically imports all five sections (one settings chunk, no per-section
+    loaders), and the chunk-regression mitigation named in §11 is a raw-source ban on static
+    heavy-package imports (bits-ui, `@fontsource/*` files, chart libs, d3, echarts, three)
+    across the settings route tree — dynamic `await import(...)` remains allowed. Raw-source
+    pins also cover the delete-flow contracts the plan left untested: Escape
+    `stopPropagation` in the row confirm, exactly one polite announcer in the row, the
+    arabic/busy/error outcome copy mapping, `result.failures` surfacing in remove-all, and
+    the `readerSource.sourceId` + `stackedTranslations.ids` in-use join.
+15. **§5's "app version" row displays no version number.** The row surfaces the existing
+    `UpdateStore` (up-to-date / update-available status plus "Check for updates"), but there
+    is no version string to show: `UpdateStore` exposes only booleans, SvelteKit's `updated`
+    state carries no version, and the offline manifest's optional `appVersion` is the pack's
+    manifest version — absent whenever no pack is staged, and not the app build's version.
+    Surfacing a real build version needs new build-time plumbing (injecting a version
+    constant into the bundle), deferred until such a constant exists; the row's substantive
+    intent — surfacing `UpdateStore` — is fully shipped.

@@ -6,7 +6,8 @@
   import { ACCENTS, SURFACES, type ThemeMode } from "$lib/config/site";
   import type { CustomSeeds } from "$lib/theme/derive";
   import { Notifications } from "$lib/components/notifications";
-  import { OfflinePack } from "$lib/components/status";
+  import { OfflinePack, OfflinePackBar } from "$lib/components/status";
+  import { offline } from "$lib/offline/offline-store.svelte";
   import { cn } from "$lib/utils";
   import { uiDirection, type UiLocale } from "$lib/i18n/locales";
   import type { TweaksResolvedCopy } from "$lib/i18n/marketing-copy";
@@ -136,6 +137,15 @@
     }
   });
 
+  $effect(() => {
+    if (
+      showReaderTools &&
+      (offline.status === "downloading" || offline.status === "staging")
+    ) {
+      ensureCopy();
+    }
+  });
+
   onMount(() => () => {
     if (copyTimer) clearTimeout(copyTimer);
   });
@@ -177,6 +187,7 @@
               <button
                 type="button"
                 class={pillClass(prefs.theme === t)}
+                aria-pressed={prefs.theme === t}
                 onclick={() => prefs.setTheme(t)}>{copy.themeNames[t]}</button
               >
             {/each}
@@ -283,9 +294,13 @@
 
         {#if showReaderTools}
           <hr class="border-line" />
-          <Notifications />
+          {#if copy.notifications}
+            <Notifications copy={copy.notifications} />
+          {/if}
           <hr class="border-line" />
-          <OfflinePack />
+          {#if copy.offlinePack}
+            <OfflinePack copy={copy.offlinePack} />
+          {/if}
         {/if}
 
         <div>
@@ -322,6 +337,10 @@
       </div>
       </div>
     </div>
+  {/if}
+
+  {#if showReaderTools && copy?.offlinePack}
+    <OfflinePackBar copy={copy.offlinePack} />
   {/if}
 
   <button

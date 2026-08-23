@@ -30,6 +30,7 @@
     searchQuran: "Search the Qur'an",
     account: "Account",
     signIn: "Sign in",
+    settings: "Settings",
     openPanel: "Open panel",
     closePanel: "Close panel",
     sitePanel: "Site panel",
@@ -116,6 +117,9 @@
   );
   let accountLabel = $derived(authState.authenticated ? copy.account : copy.signIn);
   let panelOffset = $derived(direction === "rtl" ? -360 : 360);
+
+  const SETTINGS_PATH = "/app/settings";
+  let settingsRowHref = $derived(publicHref(SETTINGS_PATH));
 
   function toggle() {
     open = !open;
@@ -242,6 +246,17 @@
           </span>
           <span class="text-xs text-fg-3">{copy.themeNames[prefs.theme]}</span>
         </button>
+      </section>
+
+      <section class="flex flex-col gap-3">
+        <h2 class="eyebrow mb-0">{copy.settings}</h2>
+        <a
+          href={settingsRowHref}
+          class="flex w-full items-center gap-2.5 rounded-lg border border-line-2 bg-bg-1 px-3.5 py-3 text-sm text-fg-2 transition-colors hover:bg-bg-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <Icon name="rows" size={16} />
+          {copy.settings}
+        </a>
       </section>
 
       {#if localeLinks.length > 0}

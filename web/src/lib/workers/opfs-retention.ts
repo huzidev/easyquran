@@ -13,7 +13,7 @@ const META_STORE = "lastUsed";
 
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CAP_COUNT = 128;
-const CAP_BYTES = 256 * 1024 * 1024;
+export const CAP_BYTES = 256 * 1024 * 1024;
 
 export async function stampLastUsed(id: string, when: number = Date.now()): Promise<void> {
   try {
@@ -21,13 +21,13 @@ export async function stampLastUsed(id: string, when: number = Date.now()): Prom
   } catch {}
 }
 
-async function clearLastUsed(id: string): Promise<void> {
+export async function clearLastUsed(id: string): Promise<void> {
   try {
     await idbDelete(await openIdb(META_DB, META_STORE), META_STORE, id);
   } catch {}
 }
 
-async function readLastUsedMap(): Promise<Map<string, number>> {
+export async function readLastUsedMap(): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   try {
     const db = await openIdb(META_DB, META_STORE);

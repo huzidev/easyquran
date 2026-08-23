@@ -23,7 +23,13 @@ import {
   type ReadFailure,
   type ReadTierStatus,
 } from "./fetch";
-import type { WorkerEvent, WorkerOutbound, WorkerRequest, WorkerStatus } from "./protocol";
+import type {
+  StorageArtifactInfo,
+  WorkerEvent,
+  WorkerOutbound,
+  WorkerRequest,
+  WorkerStatus,
+} from "./protocol";
 import { DEFAULT_LIMIT, DEFAULT_OFFSET } from "./search/normalize";
 import { SearchProvider, type SearchOpts, type SearchResponse } from "./search/types";
 import { DEFAULT_QURAN_SOURCE_PLAN } from "./source-plan";
@@ -182,6 +188,47 @@ export interface ReadOptions {
    */
   readonly hedgeAfterMs?: number;
   readonly signal?: AbortSignal;
+}
+
+export type StorageAdminFailure = "arabic" | "busy";
+
+export class StorageAdminError extends Error {
+  readonly failure: StorageAdminFailure;
+  constructor(failure: StorageAdminFailure) {
+    super(failure);
+    this.name = "StorageAdminError";
+    this.failure = failure;
+  }
+}
+
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- boundary decoder: raw is the untyped worker reply; this function IS the parser that validates each artifact field
+function decodeStorageArtifacts(raw: unknown): StorageArtifactInfo[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: StorageArtifactInfo[] = [];
+  for (const item of raw) {
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- worker-message boundary: typeof-object discriminates a non-null object before per-field validation
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    // SAFETY: item is narrowed to a non-null object by the guard above; the cast only exposes fields for the checks below.
+    // eslint-disable-next-line anti-slop/no-unsafe-dictionary-type -- structured-clone reply bag; each field is validated by name before use
+    const obj = item as Record<string, unknown>;
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- worker-message boundary field check: id must be a non-empty string
+    if (typeof obj.id !== "string" || obj.id === "") return null;
+    if (obj.store !== "opfs" && obj.store !== "idb" && obj.store !== "session") return null;
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- worker-message boundary field check: tag must be a string
+    if (typeof obj.tag !== "string") return null;
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- worker-message boundary field check: sizeBytes must be a finite number
+    if (typeof obj.sizeBytes !== "number" || !Number.isFinite(obj.sizeBytes)) return null;
+    // eslint-disable-next-line anti-slop/no-runtime-typeof -- worker-message boundary field check: lastUsed is a stamped finite number or null
+    if (obj.lastUsed !== null && (typeof obj.lastUsed !== "number" || !Number.isFinite(obj.lastUsed))) return null;
+    out.push({
+      id: obj.id,
+      store: obj.store,
+      tag: obj.tag,
+      sizeBytes: obj.sizeBytes,
+      lastUsed: obj.lastUsed,
+    });
+  }
+  return out;
 }
 
 interface SourceFallbackArgs<T> {
@@ -435,6 +482,24 @@ export const quranWorker = {
   setPinnedTranslations(ids: readonly string[]): Promise<void> {
     desiredPinnedTranslations = [...ids];
     return syncPinnedTranslations();
+  },
+
+  listArtifacts(): Promise<StorageArtifactInfo[]> {
+    return request<unknown>((id) => ({ id, type: "listArtifacts" })).then((raw) => {
+      const decoded = decodeStorageArtifacts(raw);
+      if (!decoded) throw new Error("quran worker returned a malformed artifact list");
+      return decoded;
+    });
+  },
+
+  async deleteTranslation(sourceId: string): Promise<void> {
+    try {
+      await request<null>((id) => ({ id, type: "deleteArtifact", sourceId }));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message === "arabic" || message === "busy") throw new StorageAdminError(message);
+      throw e;
+    }
   },
 
   whenReady(): Promise<void> {

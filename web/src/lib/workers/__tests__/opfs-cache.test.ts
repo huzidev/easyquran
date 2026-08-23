@@ -12,6 +12,7 @@ import {
   deleteCachedArtifact,
   ensureArtifact,
   filterSourceFiles,
+  forgetSessionArtifact,
   idFromActiveFileName,
   inspectCachedArtifacts,
   isActiveFileName,
@@ -861,6 +862,108 @@ describe("ensureArtifact crash-safe OPFS flow", () => {
     expect(await readSeed(spec.id, tempFileName(spec.id), env.root)).not.toBeNull();
     await sweepAbandonedTemps();
     expect(await readSeed(spec.id, tempFileName(spec.id), env.root)).toBeNull();
+  });
+});
+
+describe("ensureArtifact session fallback", () => {
+  // SAFETY: globalThis.fetch is a real runtime global; cast snapshots it for afterEach restore.
+  const realFetch = (globalThis as { fetch?: unknown }).fetch;
+
+  function stripOpfs(): void {
+    Object.defineProperty(globalThis.navigator, "storage", {
+      value: {},
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // Wrap the quran artifact store so every `put` (the persist attempt in
+  // ensureIdbArtifact) throws synchronously inside runTxVoid's executor,
+  // rejecting the persist. `get` stays intact, and other DBs are untouched.
+  async function breakQuranPuts(): Promise<() => void> {
+    const quranDb = reinterpretAs<FakeDB>(await openIdb(QURAN_DB, QURAN_STORE));
+    const origTransaction = quranDb.transaction.bind(quranDb);
+    quranDb.transaction = (store: string, mode: IDBTransactionMode): FakeTx => {
+      const tx = origTransaction(store, mode);
+      if (store !== QURAN_STORE) return tx;
+      const origObjectStore = tx.objectStore.bind(tx);
+      tx.objectStore = (): FakeStoreHandle => {
+        const handle = origObjectStore(store);
+        // SAFETY: the override only needs to throw on every put call; the
+        // arrow's never-returning body is assignable to FakeStoreHandle["put"].
+        handle.put = ((..._args: unknown[]) => {
+          throw new Error("quran put refused");
+        }) as FakeStoreHandle["put"];
+        return handle;
+      };
+      return tx;
+    };
+    return () => {
+      quranDb.transaction = origTransaction;
+    };
+  }
+
+  beforeEach(() => {
+    installFakes();
+  });
+  afterEach(() => {
+    // SAFETY: globalThis.fetch is a real runtime global; cast restores the snapshot.
+    (globalThis as { fetch?: unknown }).fetch = realFetch;
+    // SAFETY: navigator.storage is optional at runtime; cast exposes it for conditional teardown.
+    const nav = globalThis.navigator as { storage?: unknown } | undefined;
+    if (nav) delete nav.storage;
+    // SAFETY: globalThis.indexedDB is set by installFakes; cast exposes the slot for teardown.
+    delete (globalThis as { indexedDB?: unknown }).indexedDB;
+  });
+
+  it("holds refused-persist bytes in the session store and lists them as removable", async () => {
+    const spec = makeSpec(16);
+    setFetchPayload(PAYLOAD(16));
+    stripOpfs();
+    const restorePuts = await breakQuranPuts();
+
+    const art = await ensureArtifact(spec);
+    restorePuts();
+    expect(art.store).toBe("session");
+    expect(art.downloaded).toBe(true);
+
+    expect(await listCachedArtifacts()).toEqual([
+      { id: spec.id, store: "session", tag: spec.id, sizeBytes: 16 },
+    ]);
+
+    await deleteCachedArtifact(spec.id, spec.id);
+    expect(await listCachedArtifacts()).toEqual([]);
+  });
+
+  it("supersedes the session entry once the same id persists to IDB", async () => {
+    const spec = makeSpec(16);
+    setFetchPayload(PAYLOAD(16));
+    stripOpfs();
+    const restorePuts = await breakQuranPuts();
+    await ensureArtifact(spec);
+    restorePuts();
+
+    const second = await ensureArtifact(spec);
+    expect(second.store).toBe("idb");
+
+    expect(await listCachedArtifacts()).toEqual([
+      { id: spec.id, store: "idb", tag: spec.id, sizeBytes: 16 },
+    ]);
+    await deleteCachedArtifact(spec.id, spec.id);
+    expect(await listCachedArtifacts()).toEqual([]);
+  });
+
+  it("drops the session entry when the worker forgets the id", async () => {
+    const spec = makeSpec(16);
+    setFetchPayload(PAYLOAD(16));
+    stripOpfs();
+    const restorePuts = await breakQuranPuts();
+    await ensureArtifact(spec);
+    restorePuts();
+    expect(await listCachedArtifacts()).toHaveLength(1);
+
+    forgetSessionArtifact(spec.id);
+    expect(await listCachedArtifacts()).toEqual([]);
   });
 });
 

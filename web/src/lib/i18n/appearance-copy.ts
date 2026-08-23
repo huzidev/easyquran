@@ -47,7 +47,9 @@ import type { MarketingLocale, TweaksResolvedCopy } from "$lib/i18n/marketing-co
 
 /**
  * Marketing appearance panel copy. Loaded lazily when the panel opens — it is the largest single
- * block of chrome copy and nothing renders it until the user asks for it.
+ * block of chrome copy and nothing renders it until the user asks for it. offlinePack and
+ * notifications stay undefined: the marketing panel never renders them, and resolving them would
+ * pull the whole settings namespace into a marketing-page download.
  * See docs/quran-system.md (Part 2, Message chunking).
  */
 export function resolveAppearanceCopy(locale: MarketingLocale): TweaksResolvedCopy {
