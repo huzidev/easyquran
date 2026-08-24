@@ -31,13 +31,13 @@
   }
 </script>
 
-<div class="mx-auto max-w-[1180px] px-6 py-10 sm:px-7 sm:py-12">
+<div class="mx-auto max-w-[1180px] px-6 pt-5 pb-10 sm:px-7 sm:pt-6 sm:pb-12">
   <h1 class="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-fg">{copy.title}</h1>
 
-  <div class="mt-8 flex flex-col gap-6 lg:mt-10 lg:flex-row lg:gap-0">
+  <div class="mt-5 flex flex-col gap-5 sm:mt-6 lg:flex-row lg:gap-0">
     <nav
       aria-label={copy.sectionsLabel}
-      class="lg:sticky lg:top-[76px] lg:mb-10 lg:w-60 lg:shrink-0 lg:self-start lg:border-e lg:pe-8"
+      class="lg:sticky lg:top-[76px] lg:w-60 lg:shrink-0 lg:self-start lg:border-e lg:pe-8"
     >
       <ul
         class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:mx-0 lg:block lg:space-y-0.5 lg:overflow-visible lg:px-0 lg:pb-0"
