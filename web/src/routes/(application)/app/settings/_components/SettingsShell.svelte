@@ -20,63 +20,53 @@
 
   function navItemClass(isActive: boolean): string {
     const base =
-      "flex items-center whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13.5px] transition-colors lg:w-full lg:rounded-lg lg:border-0 lg:bg-transparent lg:py-2.5 lg:text-start";
+      "flex items-center gap-2.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13.5px] transition-colors";
     if (isActive) {
-      return cn(base, "border-accent bg-accent-soft font-medium text-fg lg:bg-accent-soft");
+      return cn(base, "border-accent bg-accent-soft font-medium text-fg");
     }
-    return cn(
-      base,
-      "border-line-2 bg-bg-1 text-fg-2 hover:border-line hover:text-fg lg:hover:bg-bg-2",
-    );
+    return cn(base, "border-line-2 bg-bg-1 text-fg-2 hover:border-line hover:text-fg");
   }
 </script>
 
 <div class="mx-auto max-w-[1180px] px-6 pt-5 pb-10 sm:px-7 sm:pt-6 sm:pb-12">
   <h1 class="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-fg">{copy.title}</h1>
 
-  <div class="mt-5 flex flex-col gap-5 sm:mt-6 lg:flex-row lg:gap-0">
-    <nav
-      aria-label={copy.sectionsLabel}
-      class="lg:sticky lg:top-[76px] lg:w-60 lg:shrink-0 lg:self-start lg:border-e lg:pe-8"
-    >
-      <ul
-        class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 lg:mx-0 lg:block lg:space-y-0.5 lg:overflow-visible lg:px-0 lg:pb-0"
-      >
-        {#each sections as section (section.id)}
-          <li class="shrink-0 lg:shrink">
-            <a
-              href={"#" + section.id}
-              aria-current={section.id === active ? "page" : undefined}
+  <nav aria-label={copy.sectionsLabel} class="mt-5 sm:mt-6">
+    <ul class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+      {#each sections as section (section.id)}
+        <li class="shrink-0">
+          <a
+            href={"#" + section.id}
+            aria-current={section.id === active ? "page" : undefined}
+            class={cn(
+              navItemClass(section.id === active),
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+            )}
+            onclick={(event) => {
+              event.preventDefault();
+              onSelect(section.id);
+            }}
+          >
+            <Icon
+              name={section.icon}
+              size={15}
               class={cn(
-                navItemClass(section.id === active),
-                "gap-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                "shrink-0 transition-colors",
+                section.id === active ? "text-accent" : "text-fg-4",
               )}
-              onclick={(event) => {
-                event.preventDefault();
-                onSelect(section.id);
-              }}
-            >
-              <Icon
-                name={section.icon}
-                size={15}
-                class={cn(
-                  "shrink-0 transition-colors",
-                  section.id === active ? "text-accent" : "text-fg-4",
-                )}
-              />
-              {section.label}
-            </a>
-          </li>
-        {/each}
-      </ul>
-    </nav>
+            />
+            {section.label}
+          </a>
+        </li>
+      {/each}
+    </ul>
+  </nav>
 
-    <div class="min-w-0 flex-1 lg:ps-10" aria-live="polite">
-      {#key active}
-        <div class="animate-fade-up">
-          {@render children()}
-        </div>
-      {/key}
-    </div>
+  <div class="mt-5 sm:mt-6" aria-live="polite">
+    {#key active}
+      <div class="animate-fade-up">
+        {@render children()}
+      </div>
+    {/key}
   </div>
 </div>

@@ -40,7 +40,8 @@
     },
   ] as const;
 
-  const pill = "rounded-lg border px-3.5 py-2 text-[13.5px] transition-colors duration-150";
+  const pill =
+    "flex items-center rounded-lg border px-3.5 py-2 text-start text-[13.5px] transition-colors duration-150";
   const pillOn = "border-accent bg-accent-soft text-fg";
   const pillOff = "border-line-2 text-fg-2 hover:border-line hover:text-fg";
 
@@ -107,103 +108,100 @@
     <div
       class="mt-4 divide-y divide-line overflow-hidden rounded-xl border border-line-2 bg-bg-1 lg:order-1 lg:mt-0"
     >
-    <div class="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-5">
-      <span class="text-[14.5px] font-medium text-fg">{copy.mode}</span>
-      <div class="flex shrink-0 gap-1.5">
-        {#each modes as mode (mode)}
+      <div class="px-4 py-3.5 sm:px-5">
+        <span class="text-[14.5px] font-medium text-fg">{copy.mode}</span>
+        <div class="mt-2.5 grid max-w-md gap-1.5">
+          {#each modes as mode (mode)}
+            <button
+              type="button"
+              class={pillClass(reader.mode === mode)}
+              aria-pressed={reader.mode === mode}
+              onclick={() => reader.setMode(mode)}>{modeLabel(mode)}</button
+            >
+          {/each}
+        </div>
+      </div>
+
+      <div class="px-4 py-3.5 sm:px-5">
+        <span class="text-[14.5px] font-medium text-fg">{copy.arabicFont}</span>
+        <div class="mt-2.5 grid max-w-md gap-1.5">
+          {#each ARABIC_FONTS as font (font.id)}
+            <button
+              type="button"
+              class={pillClass(reader.arabicFont === font.id)}
+              aria-pressed={reader.arabicFont === font.id}
+              style:font-family={arabicFontStack(font.id)}
+              onclick={() => chooseArabicFont(font.id)}>{fontLabel(font.id)}</button
+            >
+          {/each}
+        </div>
+      </div>
+
+      <div class="px-4 py-3.5 sm:px-5">
+        <span class="text-[14.5px] font-medium text-fg">{copy.arabicSize}</span>
+        <div class="mt-2.5 flex items-center gap-2.5" role="group" aria-label={copy.arabicSize}>
           <button
             type="button"
-            class={pillClass(reader.mode === mode)}
-            aria-pressed={reader.mode === mode}
-            onclick={() => reader.setMode(mode)}>{modeLabel(mode)}</button
+            class={stepperButton}
+            aria-label="{copy.arabicSize} −"
+            disabled={reader.arabicSizePx === `${ARABIC_FONT_MIN}px`}
+            onclick={() => reader.smaller()}>−</button
           >
-        {/each}
-      </div>
-    </div>
-
-    <div class="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-5">
-      <span class="text-[14.5px] font-medium text-fg">{copy.arabicFont}</span>
-      <div class="flex shrink-0 flex-wrap gap-1.5">
-        {#each ARABIC_FONTS as font (font.id)}
+          <span
+            class="min-w-12 text-center text-[13.5px] tabular-nums text-fg-2"
+            aria-live="polite">{reader.arabicSizePx}</span
+          >
           <button
             type="button"
-            class={pillClass(reader.arabicFont === font.id)}
-            aria-pressed={reader.arabicFont === font.id}
-            style:font-family={arabicFontStack(font.id)}
-            onclick={() => chooseArabicFont(font.id)}>{fontLabel(font.id)}</button
+            class={stepperButton}
+            aria-label="{copy.arabicSize} +"
+            disabled={reader.arabicSizePx === `${ARABIC_FONT_MAX}px`}
+            onclick={() => reader.bigger()}>+</button
           >
-        {/each}
+        </div>
       </div>
-    </div>
 
-    <div class="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-5">
-      <span class="text-[14.5px] font-medium text-fg">{copy.arabicSize}</span>
-      <div
-        class="flex shrink-0 items-center gap-2.5"
-        role="group"
-        aria-label={copy.arabicSize}
-      >
-        <button
-          type="button"
-          class={stepperButton}
-          aria-label="{copy.arabicSize} −"
-          disabled={reader.arabicSizePx === `${ARABIC_FONT_MIN}px`}
-          onclick={() => reader.smaller()}>−</button
-        >
-        <span class="min-w-12 text-center text-[13.5px] tabular-nums text-fg-2" aria-live="polite"
-          >{reader.arabicSizePx}</span
-        >
-        <button
-          type="button"
-          class={stepperButton}
-          aria-label="{copy.arabicSize} +"
-          disabled={reader.arabicSizePx === `${ARABIC_FONT_MAX}px`}
-          onclick={() => reader.bigger()}>+</button
-        >
+      <div class="px-4 py-3.5 sm:px-5">
+        <span class="text-[14.5px] font-medium text-fg">{copy.translationFont}</span>
+        <div class="mt-2.5 grid max-w-md gap-1.5">
+          {#each families as family (family)}
+            <button
+              type="button"
+              class={pillClass(reader.translationFamily === family)}
+              aria-pressed={reader.translationFamily === family}
+              onclick={() => reader.setTranslationFamily(family)}>{familyLabel(family)}</button
+            >
+          {/each}
+        </div>
       </div>
-    </div>
 
-    <div class="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-5">
-      <span class="text-[14.5px] font-medium text-fg">{copy.translationFont}</span>
-      <div class="flex shrink-0 gap-1.5">
-        {#each families as family (family)}
+      <div class="px-4 py-3.5 sm:px-5">
+        <span class="text-[14.5px] font-medium text-fg">{copy.translationSize}</span>
+        <div
+          class="mt-2.5 flex items-center gap-2.5"
+          role="group"
+          aria-label={copy.translationSize}
+        >
           <button
             type="button"
-            class={pillClass(reader.translationFamily === family)}
-            aria-pressed={reader.translationFamily === family}
-            onclick={() => reader.setTranslationFamily(family)}>{familyLabel(family)}</button
+            class={stepperButton}
+            aria-label="{copy.translationSize} −"
+            disabled={reader.translationSizePx === `${TRANSLATION_FONT_MIN}px`}
+            onclick={() => reader.shrinkTranslation()}>−</button
           >
-        {/each}
+          <span
+            class="min-w-12 text-center text-[13.5px] tabular-nums text-fg-2"
+            aria-live="polite">{reader.translationSizePx}</span
+          >
+          <button
+            type="button"
+            class={stepperButton}
+            aria-label="{copy.translationSize} +"
+            disabled={reader.translationSizePx === `${TRANSLATION_FONT_MAX}px`}
+            onclick={() => reader.growTranslation()}>+</button
+          >
+        </div>
       </div>
-    </div>
-
-    <div class="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-5">
-      <span class="text-[14.5px] font-medium text-fg">{copy.translationSize}</span>
-      <div
-        class="flex shrink-0 items-center gap-2.5"
-        role="group"
-        aria-label={copy.translationSize}
-      >
-        <button
-          type="button"
-          class={stepperButton}
-          aria-label="{copy.translationSize} −"
-          disabled={reader.translationSizePx === `${TRANSLATION_FONT_MIN}px`}
-          onclick={() => reader.shrinkTranslation()}>−</button
-        >
-        <span class="min-w-12 text-center text-[13.5px] tabular-nums text-fg-2" aria-live="polite"
-          >{reader.translationSizePx}</span
-        >
-        <button
-          type="button"
-          class={stepperButton}
-          aria-label="{copy.translationSize} +"
-          disabled={reader.translationSizePx === `${TRANSLATION_FONT_MAX}px`}
-          onclick={() => reader.growTranslation()}>+</button
-        >
-      </div>
-    </div>
-
     </div>
   </div>
 </div>
