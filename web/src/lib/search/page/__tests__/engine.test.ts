@@ -385,4 +385,28 @@ describe("createSearchEngine", () => {
     expect(section?.phase).toBe("done");
     expect(section?.hits.length).toBe(3);
   });
+
+  it("republishes the sectionList snapshot with a fresh array and object on every phase change", async () => {
+    seedCached([LTR]);
+    h.state.selectionIds = [LTR];
+    h.searchTranslation.mockResolvedValueOnce(translationResponse(LTR, "mercy", 2, 0, 20));
+
+    engine.run("mercy");
+    await commit();
+
+    const listAfterCommit = engine.sectionList;
+    const sectionAfterCommit = listAfterCommit.find((s) => s.id === LTR);
+    expect(sectionAfterCommit?.phase).toBe("done");
+
+    h.searchTranslation.mockRejectedValueOnce(new Error("boom"));
+    engine.run("mercy again");
+    await commit();
+
+    expect(engine.sectionList).not.toBe(listAfterCommit);
+    const listAfterError = engine.sectionList;
+    const sectionAfterError = listAfterError.find((s) => s.id === LTR);
+    expect(sectionAfterError?.phase).toBe("error");
+    expect(sectionAfterError).not.toBe(sectionAfterCommit);
+    expect(listAfterCommit.find((s) => s.id === LTR)?.phase).toBe("done");
+  });
 });

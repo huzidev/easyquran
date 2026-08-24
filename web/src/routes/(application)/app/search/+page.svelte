@@ -32,11 +32,13 @@
   const committedTooShort = $derived(engine.committedQuery.length < MIN_QUERY_LEN);
 
   const orderedSections = $derived.by(() => {
+    void engine.sectionList;
+    const byId = new Map(engine.sectionList.map((section) => [section.id, section]));
     const out: SectionState[] = [];
-    const arabic = engine.sections.get("arabic");
+    const arabic = byId.get("arabic");
     if (arabic) out.push(arabic);
     for (const id of searchSelection.ids) {
-      const section = engine.sections.get(id);
+      const section = byId.get(id);
       if (section && section.kind === "translation") out.push(section);
     }
     return out;

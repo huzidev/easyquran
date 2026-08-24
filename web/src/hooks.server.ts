@@ -71,7 +71,7 @@ function buildCsp(nonce: string | undefined): string {
   if (import.meta.env.DEV) {
     connectSrc.push("http://localhost:*", "ws://localhost:*", "wss://localhost:*");
   }
-  const scriptSrc = ["'self'"];
+  const scriptSrc = ["'self'", "'wasm-unsafe-eval'"];
   if (nonce) scriptSrc.push(`'nonce-${nonce}'`);
   scriptSrc.push("https://www.gstatic.com", "https://www.googletagmanager.com");
   if (import.meta.env.DEV) {

@@ -13,7 +13,7 @@
 # those hashes, so on a static host the prerendered mirror serves without
 # hydration under this policy.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-a/xqAVhoYqrTfXzF16QZlUT1KB67sQOksM2vi5mNtVY=' https://www.gstatic.com https://www.googletagmanager.com; connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://firestore.googleapis.com https://firebase.googleapis.com https://firebaseinstallations.googleapis.com https://firebaseremoteconfig.googleapis.com https://firebaselogging.googleapis.com https://firebaselogging-pa.googleapis.com https://fcmregistrations.googleapis.com https://play.google.com https://www.google-analytics.com https://www.google.com; worker-src 'self' blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-a/xqAVhoYqrTfXzF16QZlUT1KB67sQOksM2vi5mNtVY=' https://www.gstatic.com https://www.googletagmanager.com; connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://firestore.googleapis.com https://firebase.googleapis.com https://firebaseinstallations.googleapis.com https://firebaseremoteconfig.googleapis.com https://firebaselogging.googleapis.com https://firebaselogging-pa.googleapis.com https://fcmregistrations.googleapis.com https://play.google.com https://www.google-analytics.com https://www.google.com; worker-src 'self' blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

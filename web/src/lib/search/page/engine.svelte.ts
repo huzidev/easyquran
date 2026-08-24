@@ -38,6 +38,7 @@ export interface SearchEngine {
   readonly committedQuery: string;
   readonly searching: boolean;
   readonly sections: ReadonlyMap<string, SectionState>;
+  readonly sectionList: readonly SectionState[];
   readonly surahSuggestions: readonly SurahSuggestion[];
   run(query: string): void;
   loadMore(sectionId: string): void;
@@ -86,12 +87,30 @@ class Engine implements SearchEngine {
   inputQuery = $state("");
   committedQuery = $state("");
   searching = $state(false);
-  sections = $state(new Map<string, SectionState>());
+  /**
+   * Render-facing section snapshot. The internal Map is plain (unreactive);
+   * every mutation republishes a fresh array here. A $state Map was tried and
+   * its updates never invalidated the page's {#each} fragments (results
+   * computed but the UI stayed on skeletons, dev and prod, svelte 5.56.8) —
+   * while $state.raw array replaces from async continuations provably render
+   * (surahSuggestions does). Keep this shape until the toolchain is retested.
+   */
+  sectionList = $state.raw<readonly SectionState[]>([]);
   surahSuggestions = $state.raw<SurahSuggestion[]>([]);
+
+  #sections = new Map<string, SectionState>();
 
   #seq = 0;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #dataPromise: Promise<QuranData> | null = null;
+
+  #syncSections(): void {
+    this.sectionList = [...this.#sections.values()];
+  }
+
+  get sections(): ReadonlyMap<string, SectionState> {
+    return this.#sections;
+  }
 
   run(query: string): void {
     this.inputQuery = query;
@@ -108,7 +127,8 @@ class Engine implements SearchEngine {
     this.committedQuery = query;
     this.surahSuggestions = [];
     if (query.length < MIN_QUERY_LEN) {
-      this.sections = new Map();
+      this.#sections = new Map();
+      this.#syncSections();
       this.searching = false;
       return;
     }
@@ -128,7 +148,8 @@ class Engine implements SearchEngine {
       }
       sections.set(id, section);
     }
-    this.sections = sections;
+    this.#sections = sections;
+    this.#syncSections();
     void this.#suggest(query, seq);
     await Promise.all([
       this.#fetchInto(ARABIC_SECTION_ID, DEFAULT_OFFSET, seq, query),
@@ -195,20 +216,30 @@ class Engine implements SearchEngine {
     }
   }
 
-  #applyHits(sectionId: string, hits: readonly SectionHit[], total: number, offset: number): void {
-    const section = this.sections.get(sectionId);
+  /** Applies an immutable section update and republishes the render snapshot. */
+  #patchSection(sectionId: string, patch: Partial<SectionState>): void {
+    const section = this.#sections.get(sectionId);
     if (!section) return;
-    section.hits = [...section.hits, ...hits];
-    section.total = total;
-    section.offset = Math.max(section.offset, offset + hits.length);
-    section.phase = "done";
-    section.gate = null;
+    this.#sections.set(sectionId, { ...section, ...patch });
+    this.#syncSections();
+  }
+
+  #applyHits(sectionId: string, hits: readonly SectionHit[], total: number, offset: number): void {
+    const section = this.#sections.get(sectionId);
+    if (!section) return;
+    this.#patchSection(sectionId, {
+      hits: [...section.hits, ...hits],
+      total,
+      offset: Math.max(section.offset, offset + hits.length),
+      phase: "done",
+      gate: null,
+    });
   }
 
   #failSection(sectionId: string): void {
-    const section = this.sections.get(sectionId);
+    const section = this.#sections.get(sectionId);
     if (!section || section.phase === "gated") return;
-    section.phase = "error";
+    this.#patchSection(sectionId, { phase: "error" });
   }
 
   async #suggest(query: string, seq: number): Promise<void> {
@@ -242,21 +273,23 @@ class Engine implements SearchEngine {
   }
 
   loadMore(sectionId: string): void {
-    const section = this.sections.get(sectionId);
+    const section = this.#sections.get(sectionId);
     if (!section || section.phase !== "done") return;
     if (section.offset >= MAX_OFFSET) return;
     if (section.offset >= section.total) return;
     const seq = this.#seq;
     const nextOffset = Math.min(section.offset, MAX_OFFSET);
-    section.phase = "more";
+    this.#patchSection(sectionId, { phase: "more" });
     void this.#fetchInto(sectionId, nextOffset, seq);
   }
 
   retry(sectionId: string): void {
-    const section = this.sections.get(sectionId);
+    const section = this.#sections.get(sectionId);
     if (!section || section.phase !== "error") return;
     const seq = this.#seq;
-    section.phase = section.hits.length > 0 ? "more" : "loading";
+    this.#patchSection(sectionId, {
+      phase: section.hits.length > 0 ? "more" : "loading",
+    });
     void this.#fetchInto(sectionId, section.offset, seq);
   }
 
@@ -267,11 +300,12 @@ class Engine implements SearchEngine {
     const seq = this.#seq;
     const { searchable } = partitionSearchable(searchSelection.ids, TRANSLATION_CATALOGUE_BY_ID);
     for (const id of searchable) {
-      if (this.sections.has(id)) continue;
+      if (this.#sections.has(id)) continue;
       if (!this.#isCached(id)) continue;
-      this.sections.set(id, makeSection(id, "translation"));
+      this.#sections.set(id, makeSection(id, "translation"));
       void this.#fetchInto(id, DEFAULT_OFFSET, seq);
     }
+    this.#syncSections();
   }
 
   dispose(): void {

@@ -101,6 +101,7 @@ function buildCsp(scriptTokens: readonly string[]): string {
   if (api) connectSrc.push(api);
   const scriptSrc = [
     "'self'",
+    "'wasm-unsafe-eval'",
     ...scriptTokens,
     "https://www.gstatic.com",
     "https://www.googletagmanager.com",
