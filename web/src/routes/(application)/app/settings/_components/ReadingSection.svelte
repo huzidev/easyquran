@@ -80,7 +80,7 @@
   <h2 class="text-[17px] font-semibold tracking-[-0.02em] text-fg">{heading}</h2>
   <p class="mt-1 max-w-[70ch] text-[14.5px] leading-relaxed text-fg-2">{copy.intro}</p>
 
-  <div class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(300px,340px)] lg:items-start lg:gap-6">
+  <div class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(400px,480px)] lg:items-start lg:gap-6">
     <aside class="lg:sticky lg:top-[76px] lg:order-2" aria-label={copy.preview}>
       <div class="rounded-xl border border-line-2 bg-bg-2 px-5 py-4 sm:px-6 sm:py-5">
         <p class="eyebrow">{copy.preview}</p>
