@@ -31,13 +31,19 @@ import type {
   WorkerStatus,
 } from "./protocol";
 import { DEFAULT_LIMIT, DEFAULT_OFFSET } from "./search/normalize";
-import { SearchProvider, type SearchOpts, type SearchResponse } from "./search/types";
+import {
+  SearchProvider,
+  type SearchOpts,
+  type SearchResponse,
+  type TranslationSearchResponse,
+} from "./search/types";
 import { DEFAULT_QURAN_SOURCE_PLAN } from "./source-plan";
 import {
   decodeQuranRangeText,
   decodeQuranSurahText,
   decodeSearchResponse,
   decodeTranslationRangeText,
+  decodeTranslationSearchResponse,
   decodeTranslationSurahText,
   type AyahCoordinateValidator,
 } from "./wire";
@@ -660,6 +666,33 @@ export const quranWorker = {
         source: SearchProvider.Worker,
       };
     });
+  },
+
+  searchTranslation(
+    sourceId: string,
+    query: string,
+    opts?: SearchOpts,
+    validateCoordinate?: AyahCoordinateValidator,
+  ): Promise<TranslationSearchResponse> {
+    return request<unknown>((id) => ({ id, type: "searchTranslation", sourceId, query, opts })).then(
+      (r) => {
+        const limit = opts?.limit ?? DEFAULT_LIMIT;
+        const offset = opts?.offset ?? DEFAULT_OFFSET;
+        const payload = decodeTranslationSearchResponse(r, validateCoordinate);
+        if (!payload) {
+          throw new Error("quran worker returned a malformed translation search response");
+        }
+        return {
+          query: payload.query ?? query,
+          sourceId: payload.sourceId ?? sourceId,
+          total: payload.total ?? payload.results.length,
+          limit: payload.limit ?? limit,
+          offset: payload.offset ?? offset,
+          results: payload.results,
+          source: SearchProvider.Worker,
+        };
+      },
+    );
   },
 };
 

@@ -8,6 +8,7 @@ import type { PaletteGroup } from "./types";
 export const PaletteGroups = {
   JumpTo: { id: "jump-to", label: "Jump to", order: 10 },
   QuranText: { id: "quran-text", label: "Quran text", order: 20 },
+  TranslationText: { id: "translation-text", label: "Translation", order: 25 },
   Surahs: { id: "surahs", label: "Surahs", order: 30 },
   Ranges: { id: "ranges", label: "Juz & pages", order: 40 },
   Settings: { id: "settings", label: "Settings", order: 55 },

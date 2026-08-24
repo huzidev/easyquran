@@ -6,6 +6,7 @@ import { quranSurahsSource } from "./sources/quran-surahs";
 import { quranTextSource } from "./sources/quran-text";
 import { settingsRoutesSource } from "./sources/settings-routes";
 import { siteRoutesSource } from "./sources/site-routes";
+import { translationTextSource } from "./sources/translation-text";
 
 /**
  * Built-in sources, in the order they contribute entries — earlier sources win
@@ -19,6 +20,7 @@ export const BUILTIN_PALETTE_SOURCES = [
   quranReferenceSource,
   quranSurahsSource,
   quranTextSource,
+  translationTextSource,
   quranRangesSource,
   settingsRoutesSource,
   siteRoutesSource,

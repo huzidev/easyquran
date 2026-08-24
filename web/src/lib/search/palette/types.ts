@@ -1,6 +1,7 @@
 import type { Pathname } from "$app/types";
 import type { IconName } from "$lib/components/icon/icons";
 import type { SurahRouteContext } from "$lib/data/quran";
+import type { TranslationDirection } from "$lib/data/quran-types";
 import type { QuranData } from "$lib/data/quran-data";
 import type { Highlight } from "$lib/quran/search/types";
 
@@ -25,8 +26,12 @@ export interface PaletteEntry {
   detail?: string;
   /** Right-aligned Arabic label, e.g. a surah's Arabic name. */
   arabic?: string;
-  /** Arabic body preview with match offsets, for full-text hits. */
-  preview?: { text: string; highlights: readonly Highlight[] };
+  /**
+   * Body preview with match offsets, for full-text hits. Arabic unless `dir`
+   * says otherwise — translation hits carry the catalogue direction so the
+   * palette renders them LTR instead of through the Arabic renderer.
+   */
+  preview?: { text: string; highlights: readonly Highlight[]; dir?: TranslationDirection };
   icon: IconName;
   /** Relevance in `[0, 1]`. Sources rank within themselves; groups keep order. */
   score: number;

@@ -17,6 +17,7 @@
   import * as Cmd from "$lib/components/ui/command";
   import { Icon } from "$lib/components/icon";
   import { HighlightedArabic } from "$lib/components/text";
+  import HighlightedText from "$lib/components/text/HighlightedText.svelte";
 
   registerBuiltinPaletteSources();
 
@@ -134,7 +135,14 @@
             <Icon name={entry.icon} size={15} class="shrink-0 text-fg-4" />
             <span class="flex min-w-0 flex-col gap-0.5">
               <span class="truncate text-fg">{entry.label}</span>
-              {#if entry.preview}
+              {#if entry.preview?.dir}
+                <HighlightedText
+                  text={entry.preview.text}
+                  highlights={entry.preview.highlights}
+                  dir={entry.preview.dir}
+                  class="line-clamp-2 text-[13px] leading-normal"
+                />
+              {:else if entry.preview}
                 <HighlightedArabic
                   text={entry.preview.text}
                   highlights={entry.preview.highlights}

@@ -23,5 +23,10 @@ export const JUZ_ALIASES = [
 
 export const PAGE_ALIASES = ["page", "pg", "p", "safha", "safhah", "صفحة", "صفحه"] as const;
 
+export const TRANSLATION_ALIASES = ["translation", "translations"] as const;
+
 /** Every keyword the Quran sources claim — used to find a query's free text. */
 export const QURAN_ALIASES = [...SURAH_ALIASES, ...JUZ_ALIASES, ...PAGE_ALIASES] as const;
+
+/** Every keyword any source claims — full-text sources all sit out bare keywords. */
+export const ALL_KEYWORD_ALIASES = [...QURAN_ALIASES, ...TRANSLATION_ALIASES] as const;

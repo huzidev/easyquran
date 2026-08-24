@@ -2,7 +2,7 @@
 
 Design doc for three search enhancements: **(1)** typo- and dialect-tolerant surah-name matching (`bakarah` → Al-Baqarah), **(2)** richer keyword/alias matching (nicknames like *tabarak*, *amma*; translation/translator lookup), **(3)** full-text search over the user's already-cached offline translation DBs.
 
-**Status: proposed — not implemented.** Every claim about current behavior below was verified against code (paths are real). Settled design decisions are stated as decisions; owner calls left open are collected in Part 8. When this ships, `docs/quran-system.md` Part 1 ("No FTS. Search = normalize + substring-scan the 6236 Uthmani rows") and `docs/remaining/feature-gap-catalogue.md` D01 must be amended — see Part 7.
+**Status: implemented (Aug 2026) — client-side only,** per Part 2 non-goals (the server `/quran/search` is untouched; no server search integration, ever). Behavior claims in Parts 3–6 are verified against the shipped code and its tests. Part 0–Part 1 record the pre-implementation baseline as observed at design time — they are history/motivation, not current behavior, and the protocol inventory there predates the `searchTranslation` message. Settled design decisions are stated as decisions; owner calls left open are collected in Part 8. The `docs/quran-system.md` Part 1 and `docs/remaining/feature-gap-catalogue.md` D01 amendments (see Part 7) are done.
 
 Related: `docs/quran-system.md` (normalization parity contract, integrity rules), `docs/remaining/feature-gap-catalogue.md` D01 (search backlog).
 
@@ -20,7 +20,7 @@ What already works and must not regress: `cow` → Al-Baqarah at 0.8 (word-bound
 
 ---
 
-# Part 1 — Current state (inventory)
+# Part 1 — State at design time (inventory, pre-implementation)
 
 ## Palette (cmdk-style, lazy)
 
@@ -85,8 +85,9 @@ Pure, total, deterministic (no locale calls beyond `toLowerCase`, capped loops, 
 |---|---|
 | `Al-Baqarah`, `Al-Baqara`, `baqarah`, `baqara`, `bakarah`, `el-baqara`, `albaqarah` | `bakara` |
 | `Ya-Sin`, `Yaseen`, `yasin`, `yaseen`, `ya seen` | `yasin` |
-| `Al-Fatihah`, `fatihah`, `fatiha`, `fathiha` | `fatiha` |
-| `Al-Fath` | `fath` (≠ `fatiha`; distance 3 > cap — correctly no match) |
+| `Al-Fatihah`, `fatihah`, `fatiha` | `fatiha` |
+| `fathiha` | `fathiha` (`th` digraph stays — distance 1 from `fatiha`, 0.50 tier; surah 1 field keys are `fatiha` only) |
+| `Al-Fath` | `fath` (≠ `fatiha`; folded distance is 2, but the 2-edit tier pre-rejects a length difference of 2 — correctly no match) |
 | `Ar-Rahman`, `Ar-Rahmaan`, `rahman`, `rahmaan` | `rahman` |
 | `Qaf`, `Qaaf`, `qaf`, `kaaf` | `kaf` |
 | `Al-Ikhlaas`, `ikhlas` | `ikhlas` |
@@ -94,7 +95,8 @@ Pure, total, deterministic (no locale calls beyond `toLowerCase`, capped loops, 
 | `Al-'Ankabut`, `Al-Ankaboot`, `ankabut` | `ankabut` |
 | `Aal-i-Imraan`, `imran`, `aal imran` | `imran` |
 | `An-Nur`, `An-Noor`, `nur`, `noor` | `nur` |
-| `Ad-Duha`, `Ad-Dhuhaa`, `duha`, `dhuha` | `duha` |
+| `Ad-Duha`, `duha` | `duha` |
+| `Ad-Dhuhaa`, `dhuha` | `dhuha` (`dh` digraph stays — surah 93 carries both field keys, name `duha` + transliteration `dhuha`, so both spellings are key-exact 0.70) |
 | `Ta-Ha`, `Taa-Haa`, `taha` | `taha` |
 | `Nooh`, `nuh` | `nuh` |
 | `Maryam` | `maryam` (`mariam` = distance 1, not key-equal — by design) |
@@ -103,7 +105,7 @@ Pure, total, deterministic (no locale calls beyond `toLowerCase`, capped loops, 
 
 Restricted Damerau-Levenshtein (sub/ins/del cost 1, adjacent transposition cost 1), three rolling rows, band `[i−max, i+max]`, early exit when a row minimum exceeds `max`. Key length ≤ 14 → ≤ ~42 cells per call.
 
-**Edit budget** (`maxEditsFor(len)`, len = longer of the two keys): `< 3 → 0` (tier off), `3–5 → 1`, `≥ 6 → 2`. Hard cap 2 — distance 3 is where noise starts; known 3-edit pairs (`zilzal`/`zalzala` is exactly 2 and covered; `rahim`/`rahman` is 2) belong to the alias table if they matter.
+**Edit budget** (`maxEditsFor(len)`, len = longer of the two keys): `< 3 → 0` (tier off), `3–5 → 1`, `≥ 6 → 2`. Hard cap 2 — distance 3 is where noise starts; known 3-edit pairs (`zilzal`/`zalzala` is exactly 2 and covered; `rahim`/`rahman` is 2) belong to the alias table if they matter. **Length-difference guard:** at the 2-edit tier the scorer pre-rejects needle/key pairs whose lengths differ by ≥ 2 — two pure insertions/deletions are a different-name class, not a typo class (`fatiha`/`fath` is folded distance 2 yet stays excluded; `meryem`/`maryam`, Δlen 0, still scores 0.40). At the 1-edit tier such pairs are already outside the cap. The guard lives in the scorer, not in `osaDistance`, which stays a pure distance oracle.
 
 ## 3.3 Score ladder (settled)
 
@@ -144,7 +146,7 @@ export function surahTranslitKeys(surahs: readonly CatalogEntry[]):
 
 - The scorer computes the query key once. **Per-word needles:** for multi-word queries the scorer also folds each whitespace-separated word ≥ 3 chars and takes the max over {whole key, word keys} — this is what rescues mistyped keywords (`surh baqarah` → keyword `surh` unrecognized → free text → word needle `baqarah` still scores).
 - Per key: kind `alias` exact → 0.75; kind `field` exact → 0.70; then `maxEditsFor` distance on either kind → 0.50 / 0.40. No prefix/substring tiers on keys — a partial key match is already served better by the raw ladder.
-- `surahTranslitKeys` builds once per catalogue load (114 × 3 folds + alias keys), memo keyed by array reference (the engine loads one process-wide catalogue).
+- `surahTranslitKeys` builds once per catalogue load (114 × 3 field folds), memo keyed by array reference (the engine loads one process-wide catalogue). Alias keys are not in the table — `quran-surahs.ts` concatenates `surahAliasKeys(num)` from `surah-aliases.ts` onto the field keys per surah before scoring, so the catalogue memo stays pure.
 
 ## 3.5 Alias tables — new `web/src/lib/search/palette/surah-aliases.ts`
 
@@ -208,7 +210,7 @@ const score = Math.max(scoreFields([...], needle), scoreArabic(...), translit);
 export interface TranslationSearchUnit {
   surah: number; ayah: number; globalIndex: number;   // 1..6236, catalogue-validated
   norm: string;                                        // normalizeLatin(text) — match surface
-  starts: readonly number[]; ends: readonly number[];  // norm char → original UTF-16
+  starts: Uint16Array; ends: Uint16Array;               // norm char → original UTF-16 (unit-local offsets; build throws past 65 535)
 }
 export function buildTranslationSearchCorpus(rows: readonly CanonicalQuranRow[]): TranslationSearchUnit[];
 export function searchTranslationCorpus(units, query, opts): { total; limit; offset; results };
@@ -221,7 +223,7 @@ Wire type added to `search/types.ts`, **separate from `SearchResponse`** (differ
 ## 4.2 Worker + protocol
 
 - Protocol (`protocol.ts`) + `worker-client.ts`: one new request `searchTranslation { sourceId, query, opts }`. Additive; older/newer bundle mismatch is not a concern (worker chunk ships with the app shell it serves).
-- Worker state: `translationSearchCorpora: Map<string, TranslationSearchUnit[]>` + `pendingTranslationCorpora` (dedupes concurrent builds, mirroring `pendingTranslationRunners`). **Cap 3, LRU-evicted** (~4 MB corpus each — budget below).
+- Worker state: `translationSearchCorpora: Map<string, TranslationSearchUnit[]>` + `pendingTranslationCorpora` (dedupes concurrent builds, mirroring `pendingTranslationRunners`). **Cap 3, LRU-evicted** (≈ 8–36 MB corpus each — budget below).
 - Build: `translationRunner(sourceId)` (inherits download/staged-validation/open-LRU unchanged) → `runQuery(runner, TANZIL_QURAN_DATABASE.queries.all)` → `buildTranslationSearchCorpus(rows)` → cache. The runner is not held beyond the build.
 - **Eviction hook:** `forgetTranslations(ids)` additionally deletes corpora entries — corpora never outlive their DB (LRU evict, retention prune, `deleteArtifact` all flow through it).
 - Errors propagate to the client → the palette source throws → the engine records it in `failedSources` (existing failure surface). No silent-empty path except the deliberate not-cached case below.
@@ -233,21 +235,21 @@ New `web/src/lib/search/palette/sources/translation-text.ts`, async, registered 
 - **Group:** new `PaletteGroups.TranslationText { id: "translation-text", label: "Translation", order: 25 }` — between QuranText (20) and Surahs (30); the registry's conflicting-order throw enforces uniqueness.
 - **Scope** (which translation), resolved per query, no picker UI: `query.routeContext` is `{kind: "translation", lang, translator}` on translated reader routes (existing `routeContextFromParams` — verified `web/src/lib/data/quran.ts:104`); else the reader's `lastRead` sourceId if it is a translation id; else the first pinned translation (the same list `app/+layout.svelte` pushes via `setPinnedTranslations`); else the source is disabled. **UiLocale never participates in source selection** (independent-axes rule).
 - **Eligibility:** residual free text ≥ `MIN_QUERY_LEN` **and** no Arabic script in it (`containsArabicScript`) — Arabic queries belong to `quran.text`; mixed queries sit out v1. Scope translation must be `direction === "ltr"` in v1 (RTL-script tafsir defer — `normalizeArabic` reuse is the natural v2 path).
-- **Keyword:** `TRANSLATION_ALIASES = ["translation", "translations"]` added to `aliases.ts`; `translation mercy` strips the keyword and searches `mercy`.
+- **Keyword:** `TRANSLATION_ALIASES = ["translation", "translations"]` added to `aliases.ts`; `translation mercy` strips the keyword and searches `mercy`. The residual gate strips the union `ALL_KEYWORD_ALIASES` (Quran keywords too, mirroring `quran.text`), so bare `surah`/`juz 5`/`page 3` sit out instead of full-text-searching the keyword itself — but `translation surah` still searches `surah` (explicit domain keyword = intent).
 - **Not-cached behavior:** `search()` first awaits `hasTranslation(scope)`; on miss it fires `void ensureTranslation(scope)` and returns `[]` this round — never blocks a keystroke path on a multi-MB download, never strands the worker message loop (the cold-read hazard that motivated `hedgeAfterMs`). Next query finds the DB cached and answers from it.
-- **Entries:** `label` = `${surah.name} ${num}:${ayah}`, `detail` = translation display name (`peekTranslationName`), `preview` = `{ text, highlights }`, `score` 0.7 flat (same as quran.text — ranking is D01 follow-up), `href` via `ayahHref(query.routeContext, ...)` (ctx-preserving; results open in the same translation; nav-guard green), **`dedupeKey: "tayah:<sourceId>:S:A"`** — deliberately distinct from `ayah:S:A` so an Arabic hit and a translation hit on the same verse both survive cross-source dedupe.
+- **Entries:** `label` = `${surah.name} ${num}:${ayah}`, `detail` = translation display name (`peekTranslationName`), `preview` = `{ text, highlights, dir }` (dir = catalogue `direction` stamped from the scope), `score` 0.7 flat (same as quran.text — ranking is D01 follow-up), `href` via `ayahHref(surahRouteContext(scope.id), ...)` — derived from the scope, not the route context, so fallback-scope hits (lastRead/pinned while on an Arabic route) land in that translation's route and agree with the `openVerse(..., scope.id)` lastRead/recents record; byte-identical to the route context on translated routes (ctx-preserving; results open in the same translation; nav-guard green), **`dedupeKey: "tayah:<sourceId>:S:A"`** — deliberately distinct from `ayah:S:A` so an Arabic hit and a translation hit on the same verse both survive cross-source dedupe.
 - **Rendering:** `HighlightedArabic.svelte` hardcodes `dir=rtl` + Arabic font; new minimal `HighlightedText.svelte` (same `highlightSegments` + `<mark>` styling, no Arabic font class, `dir` from the catalogue `direction` field), imported only inside the palette tree.
 
 ## 4.4 Budgets (median 1.25 MB, worst 13 MB translation)
 
-- **Memory:** corpus ≈ normalized text × 2 (UTF-16) + ~100 B/unit metadata ≈ **~4 MB per searched translation** (display text is *not* stored — re-fetched per hit via the existing `range` query, top-8 only). Cap 3 → ≤ ~12 MB. DB residency is already paid by reading.
-- **Build:** one `all` SELECT (6236 rows, the identical readout the Arabic corpus does) + normalize-with-map pass ≈ **50–100 ms on the worker thread, first search only**. Estimate — benchmark during implementation (Part 8).
+- **Memory:** corpus = normalized text × 2 (UTF-16 strings) + **4 B per normalized char** for the two offset maps (`Uint16Array` — offsets are unit-local, and `normalizeLatinWithMap` throws past 65 535, above the longest real unit ≈ 30 k) + ~100 B/unit metadata ≈ **7.9 MB for a median translation** (1.25 M chars) and **≈ 36 MB for the worst searchable translation** (ru.kuliev-alsaadi shape: 6.2 M Cyrillic chars). Cap 3 → typically ~25 MB; three max-size corpora (~108 MB) is the pathological ceiling, not the typical case. Display text is *not* stored — re-fetched per hit via the existing `range` query, top-8 only. The normalized string is assembled with a parts array + `join` (no cons-string retention; the build transient — source rows + per-unit scratch — measured ~15–22 MB above baseline on node, freed after the build). Measured + machine-asserted by the "corpus memory budget" tests in `web/src/lib/quran/search/__tests__/translation-corpus.test.ts` (median < 9 MB, max-shape < 42 MB). DB residency is already paid by reading.
+- **Build:** one `all` SELECT (6236 rows, the identical readout the Arabic corpus does) + normalize-with-map pass ≈ **~250 ms median, ~1.9 s max-shape on the worker thread, first search only** (node 24 bench; the Part 8 benchmark landed as the budget tests above).
 - **Scan:** 6236 × `String.includes` over pre-normalized strings ≈ **5–15 ms**, inside the 140 ms debounce, cancellable by the next keystroke.
 - **Concurrency:** build is awaited in the handler like any op; `pendingTranslationCorpora` dedupes; delete's existing rejecting pending-runner gate blocks corpus builds against a being-deleted id (corpus path goes through `translationRunner`).
 
 ## 4.5 Lifecycle: derive-on-first-search, never persist
 
-Rebuild is ~once per session; persisting would add 2–4 MB/translation of duplicate storage, a second id-keyed atomic-swap lifecycle, and invalidation coupling — for zero user-visible win. Matches the Arabic corpus precedent (`ensureSearchCorpus` is a module-var cache, never persisted). No new R2 objects, no catalogue growth, nothing under `db/`, no hashes anywhere.
+Rebuild is ~once per session; persisting would re-add the corpus payload (≈ 8–36 MB per translation) as duplicate storage, a second id-keyed atomic-swap lifecycle, and invalidation coupling — for zero user-visible win. Matches the Arabic corpus precedent (`ensureSearchCorpus` is a module-var cache, never persisted). No new R2 objects, no catalogue growth, nothing under `db/`, no hashes anywhere.
 
 ## 4.6 Deferred decisions (recorded, not solved)
 
@@ -302,8 +304,8 @@ Rebuild is ~once per session; persisting would add 2–4 MB/translation of dupli
 
 **`sources.test.ts` (additive):**
 - `bakarah` → first Surahs entry "2. Al-Baqarah", score 0.70. `bakarah 255` / `surah bakarah 255` → JumpTo `2:255` (`ayah:2:255`).
-- `yaseen`/`yasin` → Ya-Sin at 0.70 (today 1.0-by-accident via meaning / 0.3 — pin the new deterministic value). `mariam` → 0.50; `meryem` → 0.40; `rahmaan` → 0.70; `teen` → At-Tin 0.70; `qaf`/`kaaf` → Qaf 0.70.
-- `fatiha` → Al-Fatihah present **and** Al-Fath absent (the collision guard).
+- `yasin` → Ya-Sin at 0.70 (fold key-exact); `yaseen` → Ya-Sin at 1.0 (raw exact — surah 36's transliteration and meaning are the literal string `Yaseen`; raw wins the max per 3.3). `mariam` → 0.50; `meryem` → 0.40; `rahmaan` → 0.8 (raw word-boundary on transliteration `Ar-Rahmaan` wins the max); `teen` → At-Tin 0.70; `qaf` → Qaf at 1.0 (raw exact on name); `kaaf` → Al-Kafirun first at 0.8 (raw word-boundary on transliteration `Al-Kaafiroon`) with Qaf present at 0.70 (fold `q`→`k`).
+- `fatiha` → Al-Fatihah present **and** Al-Fath absent (the collision guard — the 3.2 length-difference pre-reject, not edit distance alone).
 - `tabarak` → surah 67 at 0.75 (alias) *and* "Juz 29" ranges entry at 0.8 — cross-group coexistence. `amma`, `juz amma` → "Juz 30" entry, `dedupeKey: "juz:30"`; `juz 30` still resolves via reference and wins dedupe.
 - `surh baqarah` → Al-Baqarah present (per-word needle).
 - Frozen regressions: `baqarah` (0.8 raw wins over 0.70), `cow` (0.8 meaning), `mulk`, Arabic queries, idle suggestions, `2:255`/`juz 5`/`112` — identical output to today.
@@ -324,7 +326,7 @@ Rebuild is ~once per session; persisting would add 2–4 MB/translation of dupli
 - **Immutable DBs / no writes:** fold keys are derived JS; translation corpora are derived JS; DBs stay READONLY; no DDL, no migrations, no new artifacts.
 - **id-not-hash:** corpora and caches keyed by translation id; integrity = existing staged validation; nothing new digests content; catalogue-sha-guard untouched by construction.
 - **Normalization parity contract untouched:** `translitKey` and `normalizeLatin` sit *above* normalization as separate pre-query/presentation transforms — the escape quran-system.md explicitly allows; they never enter the wire query, the worker's Arabic path, or `/quran/search`; `parity.json` unchanged. (Stated here so the change is not misread as a parity-contract change requiring a Rust ship.)
-- **"No FTS" statement stays true:** substring scan over derived corpora; FTS5 present-in-wasm but unused is recorded as an escape hatch. Amend quran-system.md's wording (search is no longer Arabic-only once Phase 2 lands) when shipping.
+- **"No FTS" statement stays true:** no tokenizing/relevance engine anywhere — the translation path is a substring scan over a derived corpus, the surah fold tier is fold-key equality plus bounded edit distance over derived fold keys (§3.4); FTS5 present-in-wasm but unused is recorded as an escape hatch. quran-system.md Part 1 is amended accordingly (search is no longer Arabic-only).
 - **Baked metadata only:** scope resolution via `TRANSLATION_BY_ID` + reader context + user pins; no `/sources` call, no remote metadata.
 - **ctx-preserving hrefs:** all new hrefs via `surahHref`/`ayahHref`/`juzHref` (quran-nav) — nav-guard green by construction; no hand-built `/app/` strings.
 - **UiLocale independence:** never touches source selection.
@@ -346,7 +348,7 @@ Rebuild is ~once per session; persisting would add 2–4 MB/translation of dupli
 ## Deliverables that turn estimates into facts (implementation-time, not pre-work)
 
 - Fold-collision + article-token census test (Part 6) — run before merge.
-- Corpus-build benchmark on a median (1.25 MB) and the max (13 MB) translation — the 50–100 ms figure is an estimate from the Arabic corpus precedent, not a measurement.
+- Corpus-build benchmark on a median (1.25 MB) and the max (13 MB) translation — **landed**: the "corpus memory budget" tests in `web/src/lib/quran/search/__tests__/translation-corpus.test.ts` build synthetic median (1.25 M chars) and max-shape (6.2 M Cyrillic chars) corpora and assert the packed-`Uint16Array` shape plus payload bounds (median < 9 MB, max < 42 MB); measured 7.9 MB / 36.3 MB payload and ~250 ms / ~1.9 s builds (node 24). The original 50–100 ms estimate was optimistic: 2.5–5× for the median, ~19× for the max shape.
 - Latin-eligibility enumeration: the `direction === "ltr"` gate admits Cyrillic/Greek etc. where matching is plain case-folded substring (fine) and Turkish dotless-ı (known wrinkle — `toLowerCase` mishandles `İ`/`ı` pairs); decide whether to special-case or document.
 
 ---
@@ -366,4 +368,4 @@ Rebuild is ~once per session; persisting would add 2–4 MB/translation of dupli
 
 # Appendix — Research provenance
 
-This doc synthesizes a 6-reader code audit (palette, quran-search, offline-cache, surah-data, backend, docs-guards) + 3 independent design proposals (minimal-curated, algorithmic, offline-fts) + an adversarial completeness pass. Claims flagged by the adversarial pass and resolved here: the sources test suite pins labels/order/idle-zero, **not** numeric tier scores (fold tiers cannot break existing pins); FTS5 symbols were independently verified present in the shipped `sqlite3.wasm` (and are moot for deserialized READONLY DBs); palette `routeContext` already carries translation identity (`routeContextFromParams`, `quran.ts:104`), so translation scoping needs no new reader plumbing; the two designs' conflicting score bands are settled once in Part 3.3. Claims that remain estimates until Part 8's deliverables run: fold-key uniqueness across all 114 surahs, the article-token census, and corpus-build timing.
+This doc synthesizes a 6-reader code audit (palette, quran-search, offline-cache, surah-data, backend, docs-guards) + 3 independent design proposals (minimal-curated, algorithmic, offline-fts) + an adversarial completeness pass. Claims flagged by the adversarial pass and resolved here: the sources test suite pins labels/order/idle-zero, **not** numeric tier scores (fold tiers cannot break existing pins); FTS5 symbols were independently verified present in the shipped `sqlite3.wasm` (and are moot for deserialized READONLY DBs); palette `routeContext` already carries translation identity (`routeContextFromParams`, `quran.ts:104`), so translation scoping needs no new reader plumbing; the two designs' conflicting score bands are settled once in Part 3.3. Claims that remain estimates until Part 8's deliverables run: fold-key uniqueness across all 114 surahs, the article-token census, and corpus-build timing (now measured — see 4.4).

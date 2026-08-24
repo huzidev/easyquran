@@ -13,7 +13,7 @@ import {
 } from "$lib/data/quran-types";
 import { isNumber, isString } from "es-toolkit";
 
-import { SearchHitKind, type SearchHit } from "./search/types";
+import { SearchHitKind, type SearchHit, type TranslationSearchHit } from "./search/types";
 import { sourceProfile } from "./view/source-profiles";
 
 export type AyahCoordinateValidator = (globalIndex: number, surah: number, ayah: number) => boolean;
@@ -279,6 +279,82 @@ export function decodeSearchResponse(
   }
   return {
     query: isString(rec.query) ? rec.query : null,
+    total: nonNegativeInteger(rec.total),
+    limit: nonNegativeInteger(rec.limit),
+    offset: nonNegativeInteger(rec.offset),
+    results,
+  };
+}
+
+function decodeOrderedHighlights(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- field decoder: raw is the unvalidated highlights JSON array
+  raw: unknown,
+  textLength: number,
+): { start: number; end: number }[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: { start: number; end: number }[] = [];
+  let previousEnd = 0;
+  for (const item of raw) {
+    const rec = asRecord(item);
+    if (!rec) return null;
+    const start = nonNegativeInteger(rec.start);
+    const end = nonNegativeInteger(rec.end);
+    if (start === null || end === null || end <= start || end > textLength) return null;
+    if (start < previousEnd) return null;
+    previousEnd = end;
+    out.push({ start, end });
+  }
+  return out;
+}
+
+function decodeTranslationSearchHit(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- wire decoder boundary: raw is unverified Worker JSON; this fn is the parser
+  raw: unknown,
+  sourceId: string,
+  validateCoordinate?: AyahCoordinateValidator,
+): TranslationSearchHit | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  if (rec.kind !== SearchHitKind.Ayah) return null;
+  if (rec.sourceId !== sourceId) return null;
+  const ayah = decodeAyah(rec.ayah, validateCoordinate);
+  if (!ayah) return null;
+  const highlights = decodeOrderedHighlights(rec.highlights, ayah.text.length);
+  if (!highlights) return null;
+  return { kind: SearchHitKind.Ayah, sourceId, ayah, highlights };
+}
+
+export interface DecodedTranslationSearchPayload {
+  query: string | null;
+  sourceId: string | null;
+  total: number | null;
+  limit: number | null;
+  offset: number | null;
+  results: TranslationSearchHit[];
+}
+
+export function decodeTranslationSearchResponse(
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- wire decoder boundary: raw is unverified Worker JSON; this fn is the parser
+  raw: unknown,
+  validateCoordinate?: AyahCoordinateValidator,
+): DecodedTranslationSearchPayload | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  const sourceId = isString(rec.sourceId) && rec.sourceId.length > 0 ? rec.sourceId : null;
+  if (!sourceId) return null;
+  if (!Array.isArray(rec.results)) return null;
+  const results: TranslationSearchHit[] = [];
+  let previousGlobalIndex = 0;
+  for (const item of rec.results) {
+    const hit = decodeTranslationSearchHit(item, sourceId, validateCoordinate);
+    if (!hit) return null;
+    if (hit.ayah.globalIndex <= previousGlobalIndex) return null;
+    previousGlobalIndex = hit.ayah.globalIndex;
+    results.push(hit);
+  }
+  return {
+    query: isString(rec.query) ? rec.query : null,
+    sourceId,
     total: nonNegativeInteger(rec.total),
     limit: nonNegativeInteger(rec.limit),
     offset: nonNegativeInteger(rec.offset),

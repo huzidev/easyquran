@@ -29,6 +29,7 @@ export type WorkerRequest =
   | { id: number; type: "readSurah"; num: number; source?: QuranReaderSource }
   | { id: number; type: "readRange"; from: number; to: number; source?: QuranReaderSource }
   | { id: number; type: "search"; query: string; opts?: SearchOpts }
+  | { id: number; type: "searchTranslation"; sourceId: string; query: string; opts?: SearchOpts }
   | { id: number; type: "hasTranslation"; source: QuranReaderSource }
   | { id: number; type: "ensureTranslation"; source: QuranReaderSource }
   | { id: number; type: "setPinnedTranslations"; ids: readonly string[] }

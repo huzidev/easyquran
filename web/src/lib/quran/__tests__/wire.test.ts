@@ -15,6 +15,7 @@ import {
   decodeSearchHit,
   decodeSearchResponse,
   decodeTranslationRangeText,
+  decodeTranslationSearchResponse,
   decodeTranslationSurahText,
   unwrapEnvelope,
 } from "$lib/quran/wire";
@@ -47,6 +48,28 @@ const OPENER_HIT: SearchHit = {
   anchorAyah: 1,
   text: "بِسْمِ ٱللَّهِ",
   highlights: [{ start: 0, end: 14 }],
+};
+
+function translationSearchHit(surah: number, ayah: number, text: string) {
+  const globalIndex = QURAN_DATA.globalIndexOf(surah, ayah);
+  if (globalIndex === undefined) throw new Error(`no coordinate for ${surah}:${ayah}`);
+  return {
+    kind: SearchHitKind.Ayah,
+    sourceId: "en.sahih",
+    ayah: { key: `${surah}:${ayah}`, surah, ayah, globalIndex, text },
+    highlights: [{ start: 0, end: 5 }],
+  };
+}
+
+const TRANSLATION_HIT_FIRST = translationSearchHit(2, 255, "mercy descends");
+const TRANSLATION_HIT_SECOND = translationSearchHit(2, 256, "and mercy follows");
+const TRANSLATION_SEARCH_PAYLOAD = {
+  query: "mercy",
+  sourceId: "en.sahih",
+  total: 2,
+  limit: 8,
+  offset: 0,
+  results: [TRANSLATION_HIT_FIRST, TRANSLATION_HIT_SECOND],
 };
 
 describe("unwrapEnvelope", () => {
@@ -319,6 +342,128 @@ describe("translation range Worker wire", () => {
         normalizations: [{ ...normalization, openerEndScalar: 1 }],
       }),
     ).toBeNull();
+  });
+});
+
+describe("translation search Worker wire", () => {
+  it("decodes a well-formed response with ascending coordinates and per-hit source echo", () => {
+    expect(
+      decodeTranslationSearchResponse(TRANSLATION_SEARCH_PAYLOAD, validateCoordinate),
+    ).toEqual(TRANSLATION_SEARCH_PAYLOAD);
+  });
+
+  it("rejects a coordinate the validator refuses", () => {
+    const rejected = TRANSLATION_HIT_SECOND.ayah.globalIndex;
+    expect(
+      decodeTranslationSearchResponse(TRANSLATION_SEARCH_PAYLOAD, (globalIndex) =>
+        globalIndex !== rejected,
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects non-ascending and duplicate globalIndex", () => {
+    const descending = {
+      ...TRANSLATION_SEARCH_PAYLOAD,
+      results: [TRANSLATION_HIT_SECOND, TRANSLATION_HIT_FIRST],
+    };
+    expect(decodeTranslationSearchResponse(descending, validateCoordinate)).toBeNull();
+    const duplicate = {
+      ...TRANSLATION_SEARCH_PAYLOAD,
+      results: [TRANSLATION_HIT_FIRST, TRANSLATION_HIT_FIRST],
+    };
+    expect(decodeTranslationSearchResponse(duplicate, validateCoordinate)).toBeNull();
+  });
+
+  it("rejects out-of-range, inverted, and overlapping highlight spans, failing the whole payload", () => {
+    const textLength = TRANSLATION_HIT_FIRST.ayah.text.length;
+    expect(
+      decodeTranslationSearchResponse(
+        {
+          ...TRANSLATION_SEARCH_PAYLOAD,
+          results: [
+            { ...TRANSLATION_HIT_FIRST, highlights: [{ start: 0, end: textLength + 1 }] },
+            TRANSLATION_HIT_SECOND,
+          ],
+        },
+        validateCoordinate,
+      ),
+    ).toBeNull();
+    expect(
+      decodeTranslationSearchResponse(
+        {
+          ...TRANSLATION_SEARCH_PAYLOAD,
+          results: [
+            { ...TRANSLATION_HIT_FIRST, highlights: [{ start: 5, end: 5 }] },
+            TRANSLATION_HIT_SECOND,
+          ],
+        },
+        validateCoordinate,
+      ),
+    ).toBeNull();
+    expect(
+      decodeTranslationSearchResponse(
+        {
+          ...TRANSLATION_SEARCH_PAYLOAD,
+          results: [
+            { ...TRANSLATION_HIT_FIRST, highlights: [{ start: 0, end: 6 }, { start: 3, end: 9 }] },
+            TRANSLATION_HIT_SECOND,
+          ],
+        },
+        validateCoordinate,
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects a missing or empty source id and a per-hit source echo mismatch", () => {
+    expect(
+      decodeTranslationSearchResponse(
+        { ...TRANSLATION_SEARCH_PAYLOAD, sourceId: undefined },
+        validateCoordinate,
+      ),
+    ).toBeNull();
+    expect(
+      decodeTranslationSearchResponse(
+        { ...TRANSLATION_SEARCH_PAYLOAD, sourceId: "" },
+        validateCoordinate,
+      ),
+    ).toBeNull();
+    expect(
+      decodeTranslationSearchResponse(
+        {
+          ...TRANSLATION_SEARCH_PAYLOAD,
+          results: [{ ...TRANSLATION_HIT_FIRST, sourceId: "en.other" }, TRANSLATION_HIT_SECOND],
+        },
+        validateCoordinate,
+      ),
+    ).toBeNull();
+    expect(
+      decodeTranslationSearchResponse(
+        { ...TRANSLATION_SEARCH_PAYLOAD, results: "invalid" },
+        validateCoordinate,
+      ),
+    ).toBeNull();
+  });
+
+  it("degrades lenient envelope fields to null instead of failing the payload", () => {
+    expect(
+      decodeTranslationSearchResponse(
+        {
+          ...TRANSLATION_SEARCH_PAYLOAD,
+          query: 7,
+          total: -1,
+          limit: "8",
+          offset: null,
+        },
+        validateCoordinate,
+      ),
+    ).toEqual({
+      query: null,
+      sourceId: "en.sahih",
+      total: null,
+      limit: null,
+      offset: null,
+      results: [TRANSLATION_HIT_FIRST, TRANSLATION_HIT_SECOND],
+    });
   });
 });
 

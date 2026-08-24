@@ -1,10 +1,16 @@
 import type { CatalogEntry } from "$lib/data/quran-types";
+import {
+  makeTranslitScorer,
+  surahTranslitKeys,
+  type TranslitKey,
+} from "$lib/quran/search/translit";
 
 import { SURAH_ALIASES } from "../aliases";
 import { PaletteGroups } from "../groups";
 import { arabicTermsFor, referenceNumbers, stripTrailingRef, termsFor } from "../query";
 import { ayahHref, openVerse, surahDetail, surahHref } from "../quran-nav";
 import { byScore, scoreArabic, scoreFields } from "../scoring";
+import { surahAliasKeys } from "../surah-aliases";
 import type { PaletteEntry, PaletteQuery, PaletteSource } from "../types";
 
 const SOURCE_ID = "quran.surahs";
@@ -12,16 +18,29 @@ const SOURCE_ID = "quran.surahs";
 /** How many surahs to offer when the palette opens with an empty query. */
 const IDLE_SUGGESTIONS = 5;
 
+function keysFor(
+  keyTable: readonly (readonly TranslitKey[])[],
+  surahNum: number,
+): readonly TranslitKey[] {
+  const fieldKeys = keyTable[surahNum - 1]!;
+  const aliases = surahAliasKeys(surahNum);
+  return aliases.length === 0 ? fieldKeys : [...fieldKeys, ...aliases];
+}
+
 function rank(
   surahs: readonly CatalogEntry[],
   needle: string,
   arabicNeedle: string,
 ): { surah: CatalogEntry; score: number }[] {
+  const scorer = makeTranslitScorer(needle);
+  const keyTable = surahTranslitKeys(surahs);
   const scored: { surah: CatalogEntry; score: number }[] = [];
   for (const surah of surahs) {
+    const translit = scorer ? scorer(keysFor(keyTable, surah.num)) : 0;
     const score = Math.max(
       scoreFields([surah.name, surah.transliteration, surah.meaning, surah.slug], needle),
       scoreArabic(surah.arabic, arabicNeedle),
+      translit,
     );
     if (score > 0) scored.push({ surah, score });
   }

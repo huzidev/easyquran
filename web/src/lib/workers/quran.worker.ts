@@ -33,7 +33,17 @@ import {
   searchCanonicalCorpus,
   type CanonicalSearchUnit,
 } from "../quran/search/corpus";
-import { SearchProvider, type SearchOpts, type SearchResponse } from "../quran/search/types";
+import {
+  buildTranslationSearchCorpus,
+  searchTranslationCorpus,
+  type TranslationSearchUnit,
+} from "../quran/search/translation-corpus";
+import {
+  SearchProvider,
+  type SearchOpts,
+  type SearchResponse,
+  type TranslationSearchResponse,
+} from "../quran/search/types";
 import { resolveSourceProfile } from "../quran/view/source-profiles";
 import {
   loadQuranSource,
@@ -84,6 +94,10 @@ let bootInventory: readonly CachedArtifactInfo[] = Object.freeze([]);
 const TRANSLATION_DB_CAP = STACKED_MAX_EXTRAS + 2;
 const translationDbs = new Map<string, Database>();
 const pendingTranslationRunners = new Map<string, Promise<QuranQueryRunner>>();
+const TRANSLATION_SEARCH_CORPUS_CAP = 3;
+const translationSearchCorpora = new Map<string, TranslationSearchUnit[]>();
+const pendingTranslationCorpora = new Map<string, Promise<TranslationSearchUnit[]>>();
+let translationCorpusBuilds = 0;
 let activeTranslationFetches = 0;
 const cachedTranslationIds = new Set<string>();
 const PINNED_ARABIC: readonly string[] = Object.freeze(plannedSourceIds(DEFAULT_QURAN_SOURCE_PLAN));
@@ -314,6 +328,7 @@ function evictTranslationDbs(): void {
     if (oldest === undefined) break;
     const database = translationDbs.get(oldest);
     translationDbs.delete(oldest);
+    translationSearchCorpora.delete(oldest);
     forgetSessionArtifact(oldest);
     if (database) {
       try {
@@ -327,6 +342,7 @@ function forgetTranslations(ids: readonly string[]): void {
   for (const id of ids) {
     cachedTranslationIds.delete(id);
     forgetSessionArtifact(id);
+    translationSearchCorpora.delete(id);
     const database = translationDbs.get(id);
     if (database) {
       translationDbs.delete(id);
@@ -435,6 +451,55 @@ async function readTranslationRange(
   );
 }
 
+async function buildTranslationSearchUnits(sourceId: string): Promise<TranslationSearchUnit[]> {
+  const runner = await translationRunner(sourceId);
+  translationCorpusBuilds += 1;
+  return buildTranslationSearchCorpus(runQuery(runner, TANZIL_QURAN_DATABASE.queries.all));
+}
+
+async function ensureTranslationSearchCorpus(sourceId: string): Promise<TranslationSearchUnit[]> {
+  const cached = translationSearchCorpora.get(sourceId);
+  if (cached) {
+    translationSearchCorpora.delete(sourceId);
+    translationSearchCorpora.set(sourceId, cached);
+    return cached;
+  }
+  const pending = pendingTranslationCorpora.get(sourceId);
+  if (pending) return pending;
+  const run = buildTranslationSearchUnits(sourceId);
+  pendingTranslationCorpora.set(sourceId, run);
+  try {
+    const units = await run;
+    while (translationSearchCorpora.size >= TRANSLATION_SEARCH_CORPUS_CAP) {
+      const oldest = translationSearchCorpora.keys().next().value;
+      if (oldest === undefined) break;
+      translationSearchCorpora.delete(oldest);
+    }
+    translationSearchCorpora.set(sourceId, units);
+    return units;
+  } finally {
+    pendingTranslationCorpora.delete(sourceId);
+  }
+}
+
+export async function searchTranslation(
+  sourceId: string,
+  query: string,
+  opts: SearchOpts = {},
+): Promise<TranslationSearchResponse> {
+  const units = await ensureTranslationSearchCorpus(sourceId);
+  const runner = await translationRunner(sourceId);
+  const textFor = (globalIndex: number): string =>
+    runQuery(runner, TANZIL_QURAN_DATABASE.queries.range, [globalIndex, globalIndex])[0]?.text ??
+    "";
+  return {
+    query,
+    sourceId,
+    ...searchTranslationCorpus(units, query, { ...opts, sourceId, textFor }),
+    source: SearchProvider.Worker,
+  };
+}
+
 function sourceState(sourceId: QuranSourceId): WorkerSourceState {
   const state = sources.get(sourceId);
   if (!state) throw new Error(`Quran source ${sourceId} is not loaded`);
@@ -513,6 +578,19 @@ export const __artifactAdminTestHooks = {
   },
 };
 
+export const __translationSearchTestHooks = {
+  setCatalogue(entries: readonly TranslationCatalogueEntry[]): void {
+    storedCatalogue = entries;
+    storedCatalogueById = new Map(entries.map((entry) => [entry.id, entry]));
+  },
+  corpusIds(): readonly string[] {
+    return [...translationSearchCorpora.keys()];
+  },
+  corpusBuilds(): number {
+    return translationCorpusBuilds;
+  },
+};
+
 function readAllRows(state: WorkerSourceState) {
   if (state.runner) return readAllSourceRows(state.runner, state.source);
   const database = openReadOnly(state.bytes);
@@ -563,6 +641,7 @@ type HandlerResult =
   | QuranSurahText
   | QuranRangeText
   | SearchResponse
+  | TranslationSearchResponse
   | boolean
   | null
   | readonly StorageArtifactInfo[];
@@ -599,6 +678,7 @@ const handlers = {
       (src) => readTranslationRange(src, m.from, m.to),
     ),
   search: (m) => search(m.query, m.opts),
+  searchTranslation: (m) => searchTranslation(m.sourceId, m.query, m.opts),
 } satisfies { [K in WorkerRequest["type"]]: Handler<K> };
 
 async function handleMessage(event: MessageEvent<WorkerRequest>): Promise<void> {

@@ -49,6 +49,23 @@ export interface SearchResponse {
   source: SearchProvider;
 }
 
+export interface TranslationSearchHit {
+  kind: typeof SearchHitKind.Ayah;
+  sourceId: string;
+  ayah: Ayah;
+  highlights: Highlight[];
+}
+
+export interface TranslationSearchResponse {
+  query: string;
+  sourceId: string;
+  total: number;
+  limit: number;
+  offset: number;
+  results: TranslationSearchHit[];
+  source: typeof SearchProvider.Worker;
+}
+
 export function searchHitKey(hit: SearchHit): string {
   return hit.kind === SearchHitKind.Opener ? hit.key : hit.ayah.key;
 }

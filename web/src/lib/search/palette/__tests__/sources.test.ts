@@ -4,8 +4,26 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("$env/dynamic/public", () => ({ env: {} }));
+
+const { ensureTranslationMock, hasTranslationMock, searchTranslationMock } = vi.hoisted(() => ({
+  ensureTranslationMock: vi.fn(),
+  hasTranslationMock: vi.fn(),
+  searchTranslationMock: vi.fn(),
+}));
+
+vi.mock("$lib/quran/worker-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("$lib/quran/worker-client")>()),
+  quranWorker: {
+    hasTranslation: (...args: unknown[]) => hasTranslationMock(...args),
+    ensureTranslation: (...args: unknown[]) => ensureTranslationMock(...args),
+    searchTranslation: (...args: unknown[]) => searchTranslationMock(...args),
+  },
+}));
+
 import { surahRouteContext, type SurahRouteContext } from "$lib/data/quran";
 import { createQuranData, type QuranData } from "$lib/data/quran-data";
+import type { TranslationSearchResponse } from "$lib/quran/search/types";
+import { reader } from "$lib/stores/reader.svelte";
 
 import { PaletteGroups } from "../groups";
 import { BUILTIN_PALETTE_SOURCES } from "../index";
@@ -25,6 +43,7 @@ import { quranSurahsSource } from "../sources/quran-surahs";
 import { quranTextSource } from "../sources/quran-text";
 import { settingsRoutesSource } from "../sources/settings-routes";
 import { siteRoutesSource } from "../sources/site-routes";
+import { translationTextSource } from "../sources/translation-text";
 import type { PaletteEntry, PaletteQuery, PaletteSource } from "../types";
 
 const DATA_PATH = [
@@ -50,6 +69,16 @@ function run(source: PaletteSource, text: string, ctx: SurahRouteContext = ARABI
   const scoped = query(text, ctx, source.limit ?? DEFAULT_SOURCE_LIMIT);
   if (!(source.enabled?.(scoped) ?? true)) return [];
   return (source.entries?.(scoped) ?? []).slice(0, scoped.limit);
+}
+
+async function runAsync(
+  source: PaletteSource,
+  text: string,
+  ctx: SurahRouteContext = ARABIC,
+): Promise<PaletteEntry[]> {
+  const scoped = query(text, ctx, source.limit ?? DEFAULT_SOURCE_LIMIT);
+  if (!(source.enabled?.(scoped) ?? true)) return [];
+  return source.search?.(scoped, new AbortController().signal) ?? [];
 }
 
 const labels = (entries: readonly PaletteEntry[]): string[] => entries.map((e) => e.label);
@@ -161,6 +190,91 @@ describe("quran.surahs source", () => {
   });
 });
 
+describe("quran.surahs typo tolerance", () => {
+  it("rescues a mistyped name to the fold key-exact tier", () => {
+    const entries = run(quranSurahsSource, "bakarah");
+    expect(entries[0]?.label).toBe("2. Al-Baqarah");
+    expect(entries[0]?.score).toBe(0.7);
+  });
+
+  it("promotes a mistyped name plus verse to the exact verse jump", () => {
+    for (const raw of ["bakarah 255", "surah bakarah 255"]) {
+      const entries = run(quranSurahsSource, raw);
+      expect(entries[0]?.groupId, raw).toBe(PaletteGroups.JumpTo.id);
+      expect(entries[0]?.label, raw).toBe("Al-Baqarah 2:255");
+      expect(entries[0]?.dedupeKey, raw).toBe("ayah:2:255");
+      expect(labels(entries), raw).toContain("2. Al-Baqarah");
+    }
+  });
+
+  it("pins Ya-Sin for the fold-derived spelling and the catalogue spelling", () => {
+    const yasin = run(quranSurahsSource, "yasin");
+    expect(yasin[0]?.label).toBe("36. Ya-Sin");
+    expect(yasin[0]?.score).toBe(0.7);
+    const yaseen = run(quranSurahsSource, "yaseen");
+    expect(yaseen[0]?.label).toBe("36. Ya-Sin");
+    expect(yaseen[0]?.score).toBe(1);
+  });
+
+  it("catches one- and two-edit spellings of Maryam", () => {
+    const mariam = run(quranSurahsSource, "mariam");
+    expect(mariam[0]?.label).toBe("19. Maryam");
+    expect(mariam[0]?.score).toBe(0.5);
+    const meryem = run(quranSurahsSource, "meryem");
+    expect(meryem[0]?.label).toBe("19. Maryam");
+    expect(meryem[0]?.score).toBe(0.4);
+  });
+
+  it("matches the Tanzil long-vowel spellings rahmaan and teen", () => {
+    const rahmaan = run(quranSurahsSource, "rahmaan");
+    expect(rahmaan[0]?.label).toBe("55. Ar-Rahman");
+    expect(rahmaan[0]?.score).toBe(0.8);
+    const teen = run(quranSurahsSource, "teen");
+    expect(teen[0]?.label).toBe("95. At-Tin");
+    expect(teen[0]?.score).toBe(0.7);
+  });
+
+  it("resolves the bare and doubled spellings of Qaf", () => {
+    const qaf = run(quranSurahsSource, "qaf");
+    expect(qaf[0]?.label).toBe("50. Qaf");
+    expect(qaf[0]?.score).toBe(1);
+    const kaaf = run(quranSurahsSource, "kaaf");
+    expect(kaaf[0]?.label).toBe("109. Al-Kafirun");
+    expect(kaaf[0]?.score).toBe(0.8);
+    const qafByFold = kaaf.find((entry) => entry.label === "50. Qaf");
+    expect(qafByFold?.score).toBe(0.7);
+  });
+
+  it("keeps Al-Fatihah findable by its dropped-h spelling", () => {
+    const fatiha = run(quranSurahsSource, "fatiha");
+    expect(fatiha[0]?.label).toBe("1. Al-Fatihah");
+    expect(fatiha[0]?.score).toBe(0.8);
+    expect(fatiha.some((entry) => entry.label === "48. Al-Fath")).toBe(false);
+  });
+
+  it("keeps a two-edit spelling one letter apart in length on the distance tier", () => {
+    const zilzal = run(quranSurahsSource, "zilzal");
+    expect(zilzal[0]?.label).toBe("99. Az-Zalzalah");
+    expect(zilzal[0]?.score).toBe(0.4);
+  });
+
+  it("rescues a mistyped keyword through per-word needles", () => {
+    expect(labels(run(quranSurahsSource, "surh baqarah"))).toContain("2. Al-Baqarah");
+  });
+
+  it("keeps correctly-typed queries on their raw scores", () => {
+    const baqarah = run(quranSurahsSource, "baqarah");
+    expect(baqarah[0]?.label).toBe("2. Al-Baqarah");
+    expect(baqarah[0]?.score).toBe(0.8);
+    const cow = run(quranSurahsSource, "cow");
+    expect(cow[0]?.label).toBe("2. Al-Baqarah");
+    expect(cow[0]?.score).toBe(0.8);
+    const mulk = run(quranSurahsSource, "mulk");
+    expect(mulk[0]?.label).toBe("67. Al-Mulk");
+    expect(mulk[0]?.score).toBe(0.8);
+  });
+});
+
 describe("Arabic-Indic and Persian digits", () => {
   it("reads a verse reference written in Arabic-Indic digits", () => {
     const [entry] = run(quranReferenceSource, "٢:٢٥٥");
@@ -209,6 +323,124 @@ describe("quran.text source gating", () => {
   });
 });
 
+describe("translation.text source", () => {
+  const translationHit = (): TranslationSearchResponse => ({
+    query: "mercy",
+    sourceId: "ms.basmeih",
+    total: 1,
+    limit: 8,
+    offset: 0,
+    results: [
+      {
+        kind: "ayah",
+        sourceId: "ms.basmeih",
+        ayah: { key: "2:255", surah: 2, ayah: 255, globalIndex: 262, text: "full of mercy" },
+        highlights: [{ start: 8, end: 14 }],
+      },
+    ],
+    source: "worker",
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hasTranslationMock.mockResolvedValue(true);
+    ensureTranslationMock.mockResolvedValue(undefined);
+    searchTranslationMock.mockResolvedValue(translationHit());
+  });
+
+  it("enables only for Latin free text of three or more letters with a scope", () => {
+    expect(translationTextSource.enabled?.(query("mercy", TRANSLATED))).toBe(true);
+    expect(translationTextSource.enabled?.(query("translation mercy", TRANSLATED))).toBe(true);
+    expect(translationTextSource.enabled?.(query("me", TRANSLATED))).toBe(false);
+    expect(translationTextSource.enabled?.(query("", TRANSLATED))).toBe(false);
+    expect(translationTextSource.enabled?.(query("الرحمن", TRANSLATED))).toBe(false);
+    expect(translationTextSource.enabled?.(query("mercy", ARABIC))).toBe(false);
+  });
+
+  it("strips the translation keyword before searching", async () => {
+    await runAsync(translationTextSource, "translation mercy", TRANSLATED);
+    expect(searchTranslationMock).toHaveBeenCalledWith(
+      "ms.basmeih",
+      "mercy",
+      { limit: 8 },
+      expect.any(Function),
+    );
+  });
+
+  it("sits out queries that are nothing but a keyword or coordinate", () => {
+    for (const raw of ["surah", "surah 2", "juz 5", "page 3", "translation"]) {
+      expect(translationTextSource.enabled?.(query(raw, TRANSLATED)), raw).toBe(false);
+    }
+  });
+
+  it("returns empty and only kicks a background download when the scope is not cached", async () => {
+    hasTranslationMock.mockResolvedValue(false);
+    const entries = await runAsync(translationTextSource, "mercy", TRANSLATED);
+    expect(entries).toEqual([]);
+    expect(ensureTranslationMock).toHaveBeenCalledTimes(1);
+    expect(ensureTranslationMock).toHaveBeenCalledWith("ms.basmeih");
+    expect(searchTranslationMock).not.toHaveBeenCalled();
+  });
+
+  it("answers from the cached translation with tayah identity and a ctx-correct href", async () => {
+    const [entry] = await runAsync(translationTextSource, "mercy", TRANSLATED);
+    expect(entry?.label).toBe("Al-Baqarah 2:255");
+    expect(entry?.detail).toBe("Basmeih");
+    expect(entry?.href).toBe("/app/al-baqarah/t/ms/basmeih/page/41#ayah-2-255");
+    expect(entry?.dedupeKey).toBe("tayah:ms.basmeih:2:255");
+    expect(entry?.groupId).toBe(PaletteGroups.TranslationText.id);
+    expect(entry?.score).toBe(0.7);
+    expect(entry?.preview).toEqual({
+      text: "full of mercy",
+      highlights: [{ start: 8, end: 14 }],
+      dir: "ltr",
+    });
+  });
+
+  it("opens fallback-scope hits in that translation's route", async () => {
+    reader.markRead(2, 200, "en.sahih");
+    try {
+      const [entry] = await runAsync(translationTextSource, "mercy", ARABIC);
+      expect(entry?.href).toBe("/app/al-baqarah/t/en/sahih/page/41#ayah-2-255");
+      expect(entry?.dedupeKey).toBe("tayah:en.sahih:2:255");
+    } finally {
+      reader.clearReadingPosition();
+    }
+  });
+
+  it("slots the translation group between Quran text and Surahs", () => {
+    expect(PaletteGroups.TranslationText.order).toBeGreaterThan(PaletteGroups.QuranText.order);
+    expect(PaletteGroups.TranslationText.order).toBeLessThan(PaletteGroups.Surahs.order);
+    registerPaletteSource(quranTextSource);
+    registerPaletteSource(translationTextSource);
+    registerPaletteSource(quranSurahsSource);
+    const order = paletteGroups().map((group) => group.id);
+    expect(order.indexOf(PaletteGroups.TranslationText.id)).toBeGreaterThan(
+      order.indexOf(PaletteGroups.QuranText.id),
+    );
+    expect(order.indexOf(PaletteGroups.TranslationText.id)).toBeLessThan(
+      order.indexOf(PaletteGroups.Surahs.id),
+    );
+  });
+
+  it("keeps the Arabic and translation hits on the same verse through cross-source dedupe", () => {
+    const entry = (id: string, dedupeKey: string): PaletteEntry => ({
+      id,
+      sourceId: "x",
+      groupId: PaletteGroups.JumpTo.id,
+      label: id,
+      icon: "book",
+      score: 1,
+      dedupeKey,
+    });
+    const deduped = dedupeEntries([
+      entry("arabic", "ayah:2:255"),
+      entry("translation", "tayah:en.sahih:2:255"),
+    ]);
+    expect(deduped).toHaveLength(2);
+  });
+});
+
 describe("quran.ranges source", () => {
   it("offers a browsable list for a bare juz or page keyword", () => {
     expect(labels(run(quranRangesSource, "juz"))).toEqual([
@@ -231,6 +463,40 @@ describe("quran.ranges source", () => {
   it("keeps the active translation in range hrefs", () => {
     expect(hrefs(run(quranRangesSource, "juz", TRANSLATED))[0]).toBe("/app/t/ms/basmeih/juz/1");
     expect(hrefs(run(quranRangesSource, "page", TRANSLATED))[0]).toBe("/app/t/ms/basmeih/page/1");
+  });
+});
+
+describe("surah and juz nicknames", () => {
+  it("maps tabarak to both Al-Mulk and the Juz 29 ranges entry", () => {
+    const surah = run(quranSurahsSource, "tabarak").find(
+      (entry) => entry.label === "67. Al-Mulk",
+    );
+    expect(surah?.score).toBe(0.75);
+    const [juz] = run(quranRangesSource, "tabarak");
+    expect(juz?.label).toBe("Juz 29 (Tabarak)");
+    expect(juz?.score).toBe(0.8);
+    expect(juz?.dedupeKey).toBe("juz:29");
+  });
+
+  it("maps bare amma and juz amma to the Juz 30 nickname entry", () => {
+    for (const raw of ["amma", "juz amma"]) {
+      const [entry] = run(quranRangesSource, raw);
+      expect(entry?.label, raw).toBe("Juz 30 (Amma)");
+      expect(entry?.dedupeKey, raw).toBe("juz:30");
+      expect(entry?.score, raw).toBe(0.8);
+    }
+  });
+
+  it("still resolves juz 30 through the reference source and wins dedupe over the nickname", () => {
+    expect(labels(run(quranReferenceSource, "juz 30"))).toEqual(["Juz 30"]);
+    expect(quranRangesSource.enabled?.(query("juz 30"))).toBe(false);
+    const merged = dedupeEntries([
+      ...run(quranReferenceSource, "juz 30"),
+      ...run(quranRangesSource, "amma"),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.sourceId).toBe(quranReferenceSource.id);
+    expect(merged[0]?.label).toBe("Juz 30");
   });
 });
 
