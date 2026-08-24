@@ -21,6 +21,7 @@ import {
   footer_whats_inside,
   nav_change_language,
   nav_language,
+  nav_search_page,
   nav_settings,
   skip_to_content,
 } from "$lib/i18n/m/chrome";
@@ -444,6 +445,7 @@ function createReaderUiCopy(locale: UiLocale): ReaderUiCopy {
       offlineTitle: noArgs(reader_offline_title),
       offlineDetail: noArgs(reader_offline_cached),
       searchQuran: noArgs(reader_search_quran),
+      searchPage: noArgs(nav_search_page),
       account: noArgs(reader_account),
       signIn: noArgs(reader_sign_in),
       openPanel: noArgs(reader_open_panel),

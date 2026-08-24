@@ -32,6 +32,7 @@ export interface NavResolvedCopy {
   offlineTitle: string;
   offlineDetail: string;
   searchQuran: string;
+  searchPage: string;
   account: string;
   signIn: string;
   settings: string;

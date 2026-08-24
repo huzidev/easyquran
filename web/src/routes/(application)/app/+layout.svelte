@@ -26,7 +26,10 @@
   let menuOpen = $state(false);
   const copy = getReaderUiCopy();
   const SETTINGS_PATH = "/app/settings";
-  const onSettingsRoute = $derived((page.route.id ?? "").endsWith("/app/settings"));
+  const isNonReaderAppRoute = $derived(
+    (page.route.id ?? "").endsWith("/app/settings") ||
+      (page.route.id ?? "").endsWith("/app/search"),
+  );
 
   const canonicalReaderHref = $derived.by<QuranReaderHref>(() => {
     const canonical = deLocalizeUrl(page.url);
@@ -35,10 +38,10 @@
     // prefix, so the rebuilt path is always a reader route.
     return `${pathname}${canonical.search}${canonical.hash}` as QuranReaderHref;
   });
-  // The settings page has no localized variant the server will render, so its locale switcher
-  // and footer reader links fall back to the localized reader home instead of a 404.
+  // The settings and search pages have no localized variant the server will render, so their
+  // locale switcher and footer reader links fall back to the localized reader home instead of a 404.
   const chromeReaderHref = $derived<QuranReaderHref>(
-    onSettingsRoute ? "/app" : canonicalReaderHref,
+    isNonReaderAppRoute ? "/app" : canonicalReaderHref,
   );
   const currentReaderHref = $derived(readerHrefFor(copy.locale, chromeReaderHref));
   const localeLinks = $derived.by<LocaleLink[]>(() =>
@@ -75,7 +78,7 @@
   });
 
   $effect(() => {
-    if (onSettingsRoute) return;
+    if (isNonReaderAppRoute) return;
     const url = page.url;
     const current = untrack(() => reader.mode);
     const param = parseModeParam(url);
@@ -91,7 +94,7 @@
   });
 
   $effect(() => {
-    if (onSettingsRoute) return;
+    if (isNonReaderAppRoute) return;
     const url = page.url;
     const parsed = parseMoreParam(url);
     if (parsed.length > 0) {

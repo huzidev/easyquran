@@ -41,6 +41,7 @@ import { quranRangesSource } from "../sources/quran-ranges";
 import { quranReferenceSource } from "../sources/quran-reference";
 import { quranSurahsSource } from "../sources/quran-surahs";
 import { quranTextSource } from "../sources/quran-text";
+import { searchRoutesSource } from "../sources/search-routes";
 import { settingsRoutesSource } from "../sources/settings-routes";
 import { siteRoutesSource } from "../sources/site-routes";
 import { translationTextSource } from "../sources/translation-text";
@@ -533,6 +534,28 @@ describe("settings.routes source", () => {
 
   it("stays registered in the built-in source list", () => {
     expect(BUILTIN_PALETTE_SOURCES).toContain(settingsRoutesSource);
+  });
+});
+
+describe("search.routes source", () => {
+  it("matches the search entry by keyword and links the canonical route", () => {
+    for (const raw of ["search", "find", "translations"]) {
+      expect(hrefs(run(searchRoutesSource, raw)), raw).toContain("/app/search");
+    }
+  });
+
+  it("offers the entry unscored on an empty query", () => {
+    const entries = run(searchRoutesSource, "");
+    expect(labels(entries)).toContain("Search");
+    expect(entries.every((entry) => entry.score === 0)).toBe(true);
+  });
+
+  it("returns nothing when nothing matches", () => {
+    expect(run(searchRoutesSource, "zzzzqx")).toHaveLength(0);
+  });
+
+  it("stays registered in the built-in source list", () => {
+    expect(BUILTIN_PALETTE_SOURCES).toContain(searchRoutesSource);
   });
 });
 

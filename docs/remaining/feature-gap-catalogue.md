@@ -382,18 +382,20 @@ pagination, and voice input.
 highlights and keyboard access. Delivered in the command palette (Aug 2026): typo-tolerant surah
 matching (fold keys + bounded edit distance), surah/juz alias nicknames (`tabarak`, `amma`), and
 offline translation full-text search over the user's cached translation DBs (worker-local) —
-see [`search-system.md`](../../docs/search-system.md). The reader drawer still calls one 20-result
-query with no pagination UI or shareable query route.
+see [`search-system.md`](../../docs/search-system.md). Delivered on a dedicated
+[`/app/search`](../../web/src/routes/(application)/app/search/+page.svelte) page (Aug 2026):
+multi-translation merged search (client-side batches of 3 concurrent worker searches), per-source
+sections with load-more pagination, shareable `?q`/`?t` URLs, and translation download management.
+The reader drawer is intentionally untouched and still calls one 20-result query.
 
 - [`Results.svelte`](../../web/src/routes/(application)/app/_reader/Results.svelte)
 - [`search.ts`](../../web/src/lib/quran/search.ts)
 - [`search/types.ts`](../../web/src/lib/quran/search/types.ts)
 - [`search-system.md`](../../docs/search-system.md)
 
-**Remaining:** reader drawer surface for the new search; pagination/URL state (dedicated query
-route, offset/cursor UI); relevance ranking for translation hits; recent queries (privacy-gated);
-voice input with unsupported/permission/error states. Preserve existing Arabic
-normalization/parity contract.
+**Remaining:** reader drawer surface for the new search; relevance ranking for translation hits;
+recent queries (privacy-gated); voice input with unsupported/permission/error states. Preserve
+existing Arabic normalization/parity contract.
 
 ### D02 — Discovery home/dashboard — Missing · P2
 

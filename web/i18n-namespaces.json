@@ -127,6 +127,11 @@
       "id": "auth",
       "description": "Auth modal + /login /register routes. Lazy: ships only inside the lazy auth chunk + auth routes.",
       "prefixes": ["auth"]
+    },
+    {
+      "id": "search",
+      "description": "Dedicated /app/search page: query input, translation picker, merged results, download management. Lazy: downloaded whole when the search route loads.",
+      "prefixes": ["search"]
     }
   ]
 }

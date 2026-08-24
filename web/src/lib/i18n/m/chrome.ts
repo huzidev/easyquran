@@ -2,7 +2,7 @@
 //
 // Site chrome rendered on every marketing page: nav, footer, brand, skip link, locale switcher. Includes the appearance-panel trigger label, the only appearance string a page needs before the panel opens.
 //
-// 39 messages. Import this barrel, never
+// 40 messages. Import this barrel, never
 // $lib/paraglide/messages.js — see docs/quran-system.md (Part 2, Message chunking).
 
 export { brand_home_label } from "$lib/paraglide/messages/brand_home_label.js";
@@ -36,6 +36,7 @@ export { nav_offline_label } from "$lib/paraglide/messages/nav_offline_label.js"
 export { nav_offline_title } from "$lib/paraglide/messages/nav_offline_title.js";
 export { nav_open_panel } from "$lib/paraglide/messages/nav_open_panel.js";
 export { nav_primary_label } from "$lib/paraglide/messages/nav_primary_label.js";
+export { nav_search_page } from "$lib/paraglide/messages/nav_search_page.js";
 export { nav_search_quran } from "$lib/paraglide/messages/nav_search_quran.js";
 export { nav_settings } from "$lib/paraglide/messages/nav_settings.js";
 export { nav_sign_in } from "$lib/paraglide/messages/nav_sign_in.js";

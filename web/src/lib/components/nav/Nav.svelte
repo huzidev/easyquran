@@ -28,6 +28,7 @@
     offlineTitle: "You are offline",
     offlineDetail: "You are offline — cached content only.",
     searchQuran: "Search the Qur'an",
+    searchPage: "Search",
     account: "Account",
     signIn: "Sign in",
     settings: "Settings",
@@ -119,7 +120,9 @@
   let panelOffset = $derived(direction === "rtl" ? -360 : 360);
 
   const SETTINGS_PATH = "/app/settings";
+  const SEARCH_PATH = "/app/search";
   let settingsRowHref = $derived(publicHref(SETTINGS_PATH));
+  let searchRowHref = $derived(publicHref(SEARCH_PATH));
 
   function toggle() {
     open = !open;
@@ -246,6 +249,17 @@
           </span>
           <span class="text-xs text-fg-3">{copy.themeNames[prefs.theme]}</span>
         </button>
+      </section>
+
+      <section class="flex flex-col gap-3">
+        <h2 class="eyebrow mb-0">{copy.searchPage}</h2>
+        <a
+          href={searchRowHref}
+          class="flex w-full items-center gap-2.5 rounded-lg border border-line-2 bg-bg-1 px-3.5 py-3 text-sm text-fg-2 transition-colors hover:bg-bg-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <Icon name="search" size={16} />
+          {copy.searchPage}
+        </a>
       </section>
 
       <section class="flex flex-col gap-3">

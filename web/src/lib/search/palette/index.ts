@@ -4,6 +4,7 @@ import { quranRangesSource } from "./sources/quran-ranges";
 import { quranReferenceSource } from "./sources/quran-reference";
 import { quranSurahsSource } from "./sources/quran-surahs";
 import { quranTextSource } from "./sources/quran-text";
+import { searchRoutesSource } from "./sources/search-routes";
 import { settingsRoutesSource } from "./sources/settings-routes";
 import { siteRoutesSource } from "./sources/site-routes";
 import { translationTextSource } from "./sources/translation-text";
@@ -23,6 +24,7 @@ export const BUILTIN_PALETTE_SOURCES = [
   translationTextSource,
   quranRangesSource,
   settingsRoutesSource,
+  searchRoutesSource,
   siteRoutesSource,
   appActionsSource,
 ] as const;

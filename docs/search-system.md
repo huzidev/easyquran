@@ -357,12 +357,12 @@ Rebuild is ~once per session; persisting would re-add the corpus payload (≈ 8�
 
 - **Arabic-script typo tolerance** (letter-level edit distance over `normalizeArabic` output; needs its own key design — hamza/alef families behave differently from Latin).
 - **`en.transliteration` romanization corpus** with fold keys (phrase-level translit full-text — the bridge between Designs A and B).
-- **Reader drawer surface + pagination/URL state/share routes** (D01).
+- **Reader drawer surface** (D01) — the dedicated `/app/search` page shipped with `?q`/`?t` share URLs and per-section load-more; the drawer itself is intentionally untouched (relevance ranking and recent queries stay open below).
 - **Relevance ranking** for full-text (both corpora) — D01.
 - **Recent queries** (privacy-gated, D01).
 - **Mobile:** consume `translitKey` from the shared `$lib/quran/search` home per the same pattern as the normalization contract (TS now; a native port mirrors the rules + shared fixtures, no wire coupling since it never crosses the API).
 - **Localization of palette copy** (group labels, "downloading translation" hint) — own namespace per the auth-modal precedent if/when the palette localizes.
-- **Multi-translation batch search** (search N cached translations concurrently, merged sections) — protocol shape sketched in 4.2 extends naturally.
+- **Multi-translation batch search** — **shipped** on the dedicated `/app/search` page (client-side batches of 3 concurrent worker searches, per-source sections, load-more pagination).
 
 ---
 

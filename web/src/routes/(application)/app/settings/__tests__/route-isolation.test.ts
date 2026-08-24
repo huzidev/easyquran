@@ -175,17 +175,19 @@ describe("settings storage delete-flow guards", () => {
 });
 
 describe("settings URL param suppression", () => {
-  it("the app layout keeps reader ?mode/?more replaceState off /app/settings", () => {
+  it("the app layout keeps reader ?mode/?more replaceState off /app/settings and /app/search", () => {
     const layout = [...sources].find(([path]) =>
       path.endsWith("(application)/app/+layout.svelte"),
     );
     expect(layout, "app/+layout.svelte should exist").toBeDefined();
     const src = layout![1];
     expect(src).toContain('endsWith("/app/settings")');
+    expect(src).toContain('endsWith("/app/search")');
+    expect(src).not.toContain("onSettingsRoute");
     expect(
-      src.match(/if \(onSettingsRoute\) return;/gu)?.length ?? 0,
-      "both the ?mode and ?more effects must keep their settings-route early return",
+      src.match(/if \(isNonReaderAppRoute\) return;/gu)?.length ?? 0,
+      "both the ?mode and ?more effects must keep their non-reader-route early return",
     ).toBe(2);
-    expect(src).toContain('onSettingsRoute ? "/app" : canonicalReaderHref');
+    expect(src).toContain('isNonReaderAppRoute ? "/app" : canonicalReaderHref');
   });
 });
