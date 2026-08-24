@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { replaceState } from "$app/navigation";
   import { page } from "$app/state";
   import { loadQuranData } from "$lib/data/quran-data-client";
   import type { QuranData } from "$lib/data/quran-data";
@@ -94,7 +95,7 @@
     const next = serializeSearchState(engine.committedQuery, searchSelection.ids);
     if (next === page.url.search) return;
     try {
-      history.replaceState(page.state, "", `${page.url.pathname}${next}`);
+      replaceState(`${page.url.pathname}${next}`, page.state);
     } catch {
       return;
     }
