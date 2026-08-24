@@ -5,6 +5,8 @@ import {
   type TranslitKey,
 } from "$lib/quran/search/translit";
 
+import { splitPlaceToken } from "$lib/search/nav/match";
+
 import { SURAH_ALIASES } from "../aliases";
 import { PaletteGroups } from "../groups";
 import { arabicTermsFor, referenceNumbers, stripTrailingRef, termsFor } from "../query";
@@ -95,7 +97,9 @@ function namedAyahEntry(
 /**
  * Surah lookup by English name, transliteration, meaning, slug or Arabic name.
  * Arabic goes through the same normalization as the Quran text search, so
- * harakat, alef forms and tatweel do not matter.
+ * harakat, alef forms and tatweel do not matter. A place word (`meccan`,
+ * `مدنية`…) anywhere in the query filters the list to that revelation place;
+ * a bare place word browses that place's surahs.
  */
 export const quranSurahsSource: PaletteSource = {
   id: SOURCE_ID,
@@ -113,18 +117,30 @@ export const quranSurahsSource: PaletteSource = {
     }
 
     const base = termsFor(parsed, SURAH_ALIASES);
-    const needle = stripTrailingRef(base);
+    const placed = splitPlaceToken(base);
+    const needle = stripTrailingRef(placed.text);
+    const place = placed.place;
+
+    if (place !== null && needle.length === 0) {
+      return quranData.surahs
+        .filter((surah) => surah.place === place)
+        .slice(0, this.limit ?? 7)
+        .map((surah) => surahEntry(query, surah, 0))
+        .filter((entry): entry is PaletteEntry => entry !== null);
+    }
+
     if (needle.length === 0) return [];
 
-    const arabicBase = arabicTermsFor(parsed, SURAH_ALIASES);
+    const arabicBase = splitPlaceToken(arabicTermsFor(parsed, SURAH_ALIASES)).text;
     const arabicNeedle = stripTrailingRef(arabicBase);
-    const ranked = rank(quranData.surahs, needle, arabicNeedle);
+    let ranked = rank(quranData.surahs, needle, arabicNeedle);
+    if (place !== null) ranked = ranked.filter(({ surah }) => surah.place === place);
     if (ranked.length === 0) return [];
 
     const entries: (PaletteEntry | null)[] = [];
 
     // A name plus one trailing number pins an exact verse in the best match.
-    const ref = base === needle ? null : referenceNumbers(parsed);
+    const ref = placed.text === needle ? null : referenceNumbers(parsed);
     if (ref && ref.secondary === undefined) {
       entries.push(namedAyahEntry(query, ranked[0]!.surah, ref.primary));
     }

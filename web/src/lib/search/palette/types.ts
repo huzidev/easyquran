@@ -52,20 +52,9 @@ export interface PaletteEntry {
  * (`juz`, `page`, `bukhari`, …) — a source claims it if it recognizes it, and
  * ignores it otherwise, since it is also just the first word of free text.
  */
-export interface ParsedQuery {
-  /** Trimmed, whitespace-collapsed. */
-  text: string;
-  lower: string;
-  /** Lowercased leading word token, or `null` when the query starts with a digit. */
-  keyword: string | null;
-  /** `text` with the leading word token removed, trimmed. */
-  afterKeyword: string;
-  /** Numbers from a trailing `2:255` / `2 255` / `255` reference, in order. */
-  numbers: readonly number[];
-  /** `text` normalized for Arabic matching (see `$lib/quran/search/normalize`). */
-  arabic: string;
-  isEmpty: boolean;
-}
+import type { ParsedQuery as ParsedQueryType } from "$lib/search/nav/parse";
+
+export type ParsedQuery = ParsedQueryType;
 
 export interface PaletteQuery {
   parsed: ParsedQuery;

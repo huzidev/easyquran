@@ -276,8 +276,14 @@
   "settings_storage_pack_heading": "Offline pack",
   "settings_storage_pack_routes": [
     {
-      "declarations": ["input entries", "input size", "local entriesPlural = entries: plural"],
-      "selectors": ["entriesPlural"],
+      "declarations": [
+        "input entries",
+        "input size",
+        "local entriesPlural = entries: plural"
+      ],
+      "selectors": [
+        "entriesPlural"
+      ],
       "match": {
         "entriesPlural=zero": "0 routes · {size}",
         "entriesPlural=one": "1 route · {size}",
@@ -296,8 +302,13 @@
   "settings_storage_pack_retry": "Retry",
   "settings_storage_pack_status_active": [
     {
-      "declarations": ["input entries", "local entriesPlural = entries: plural"],
-      "selectors": ["entriesPlural"],
+      "declarations": [
+        "input entries",
+        "local entriesPlural = entries: plural"
+      ],
+      "selectors": [
+        "entriesPlural"
+      ],
       "match": {
         "entriesPlural=zero": "On — 0 routes stored.",
         "entriesPlural=one": "On — 1 route stored.",
@@ -372,5 +383,13 @@
   "search_manage_storage": "Manage storage in Settings",
   "search_error_section": "This translation could not be searched.",
   "search_retry": "Retry",
-  "search_pick_prompt": "Pick at least one translation to search it."
+  "search_pick_prompt": "Pick at least one translation to search it.",
+  "search_section_nav": "Quick jumps",
+  "search_nav_juz": "Juz {num}",
+  "search_nav_page": "Page {num}",
+  "search_nav_sajda_recommended": "Recommended prostration",
+  "search_nav_sajda_obligatory": "Obligatory prostration",
+  "search_nav_place_meccan": "Meccan",
+  "search_nav_place_medinan": "Medinan",
+  "search_nav_place_count": "{count} surahs"
 }

@@ -16,6 +16,7 @@
   import { stackedTranslations } from "$lib/stores/stacked-translations.svelte";
   import { storageReport } from "$lib/stores/storage-report.svelte";
 
+  import NavSuggestions from "./_components/NavSuggestions.svelte";
   import ResultSection from "./_components/ResultSection.svelte";
   import SearchControls from "./_components/SearchControls.svelte";
   import SurahSuggestions from "./_components/SurahSuggestions.svelte";
@@ -29,7 +30,9 @@
   let adoptedSelection = false;
   let lastSelectionKey: string | null = null;
 
-  const committedTooShort = $derived(engine.committedQuery.length < MIN_QUERY_LEN);
+  const committedTooShort = $derived(
+    engine.committedQuery.length < MIN_QUERY_LEN && engine.navSuggestions.length === 0,
+  );
 
   const orderedSections = $derived.by(() => {
     void engine.sectionList;
@@ -131,6 +134,13 @@
       {#if pickerOpen}
         <TranslationPicker {copy} />
       {/if}
+
+      <NavSuggestions
+        {copy}
+        matches={engine.navSuggestions}
+        {quranData}
+        sourceId={suggestSourceId}
+      />
 
       <SurahSuggestions
         {copy}

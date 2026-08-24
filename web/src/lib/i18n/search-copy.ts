@@ -18,11 +18,19 @@ import {
   search_load_more,
   search_loading_more,
   search_manage_storage,
+  search_nav_juz,
+  search_nav_page,
+  search_nav_place_count,
+  search_nav_place_medinan,
+  search_nav_place_meccan,
+  search_nav_sajda_obligatory,
+  search_nav_sajda_recommended,
   search_no_results,
   search_pick_prompt,
   search_placeholder,
   search_results_label,
   search_retry,
+  search_section_nav,
   search_rtl_disabled,
   search_section_quran,
   search_section_surahs,
@@ -39,6 +47,14 @@ export interface SearchCopy {
   readonly resultsLabel: string;
   readonly sectionQuran: string;
   readonly sectionSurahs: string;
+  readonly sectionNav: string;
+  readonly navJuz: (num: number) => string;
+  readonly navPage: (num: number) => string;
+  readonly navSajdaRecommended: string;
+  readonly navSajdaObligatory: string;
+  readonly navPlaceMeccan: string;
+  readonly navPlaceMedinan: string;
+  readonly navPlaceCount: (count: number) => string;
   readonly count: (count: number) => string;
   readonly loadMore: string;
   readonly loadingMore: string;
@@ -81,6 +97,14 @@ export function getSearchCopy(locale: UiLocale = getLocale() as UiLocale): Searc
     resultsLabel: noArgs(search_results_label),
     sectionQuran: noArgs(search_section_quran),
     sectionSurahs: noArgs(search_section_surahs),
+    sectionNav: noArgs(search_section_nav),
+    navJuz: (num) => search_nav_juz({ num }, options),
+    navPage: (num) => search_nav_page({ num }, options),
+    navSajdaRecommended: noArgs(search_nav_sajda_recommended),
+    navSajdaObligatory: noArgs(search_nav_sajda_obligatory),
+    navPlaceMeccan: noArgs(search_nav_place_meccan),
+    navPlaceMedinan: noArgs(search_nav_place_medinan),
+    navPlaceCount: (count) => search_nav_place_count({ count }, options),
     count: (count) => search_count({ count }, options),
     loadMore: noArgs(search_load_more),
     loadingMore: noArgs(search_loading_more),

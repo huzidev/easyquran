@@ -9,7 +9,7 @@ import {
 
 import type { SurahSuggestion } from "./types";
 
-const MAX_SUGGESTIONS = 5;
+export const MAX_SUGGESTIONS = 5;
 
 /** Circulation nicknames translit folding cannot derive from catalogue fields. */
 const SURAH_KEYWORDS: readonly (readonly [alias: string, surahNum: number])[] = [

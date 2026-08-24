@@ -2,6 +2,7 @@ import { registerPaletteSource } from "./registry";
 import { appActionsSource } from "./sources/app-actions";
 import { quranRangesSource } from "./sources/quran-ranges";
 import { quranReferenceSource } from "./sources/quran-reference";
+import { quranSajdasSource } from "./sources/quran-sajdas";
 import { quranSurahsSource } from "./sources/quran-surahs";
 import { quranTextSource } from "./sources/quran-text";
 import { searchRoutesSource } from "./sources/search-routes";
@@ -23,6 +24,7 @@ export const BUILTIN_PALETTE_SOURCES = [
   quranTextSource,
   translationTextSource,
   quranRangesSource,
+  quranSajdasSource,
   settingsRoutesSource,
   searchRoutesSource,
   siteRoutesSource,

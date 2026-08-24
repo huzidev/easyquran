@@ -11,6 +11,7 @@ export const PaletteGroups = {
   TranslationText: { id: "translation-text", label: "Translation", order: 25 },
   Surahs: { id: "surahs", label: "Surahs", order: 30 },
   Ranges: { id: "ranges", label: "Juz & pages", order: 40 },
+  Sajdas: { id: "sajdas", label: "Sajdas", order: 45 },
   Settings: { id: "settings", label: "Settings", order: 55 },
   AppPages: { id: "app-pages", label: "Pages", order: 56 },
   Site: { id: "site", label: "Pages", order: 90 },

@@ -28,6 +28,7 @@ const SEARCH_COMPONENTS = [
   "ResultSection.svelte",
   "AyahResult.svelte",
   "SurahSuggestions.svelte",
+  "NavSuggestions.svelte",
 ] as const;
 
 const SEARCH_DIR = "app/search/";
@@ -67,7 +68,13 @@ describe("search route chunk isolation", () => {
   it("the page statically imports the components it renders", () => {
     const page = [...sources].find(([path]) => path.endsWith(`${SEARCH_DIR}+page.svelte`));
     expect(page, "search +page.svelte should exist").toBeDefined();
-    for (const name of ["SearchControls", "TranslationPicker", "SurahSuggestions", "ResultSection"]) {
+    for (const name of [
+      "SearchControls",
+      "TranslationPicker",
+      "SurahSuggestions",
+      "NavSuggestions",
+      "ResultSection",
+    ]) {
       expect(
         page![1],
         `+page.svelte must keep importing ${name} statically`,

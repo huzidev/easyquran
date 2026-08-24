@@ -2,7 +2,7 @@
 //
 // Dedicated /app/search page: query input, translation picker, merged results, download management. Lazy: downloaded whole when the search route loads.
 //
-// 26 messages. Import this barrel, never
+// 34 messages. Import this barrel, never
 // $lib/paraglide/messages.js — see docs/quran-system.md (Part 2, Message chunking).
 
 export { search_arabic_only_note } from "$lib/paraglide/messages/search_arabic_only_note.js";
@@ -21,12 +21,20 @@ export { search_input_label } from "$lib/paraglide/messages/search_input_label.j
 export { search_load_more } from "$lib/paraglide/messages/search_load_more.js";
 export { search_loading_more } from "$lib/paraglide/messages/search_loading_more.js";
 export { search_manage_storage } from "$lib/paraglide/messages/search_manage_storage.js";
+export { search_nav_juz } from "$lib/paraglide/messages/search_nav_juz.js";
+export { search_nav_page } from "$lib/paraglide/messages/search_nav_page.js";
+export { search_nav_place_count } from "$lib/paraglide/messages/search_nav_place_count.js";
+export { search_nav_place_meccan } from "$lib/paraglide/messages/search_nav_place_meccan.js";
+export { search_nav_place_medinan } from "$lib/paraglide/messages/search_nav_place_medinan.js";
+export { search_nav_sajda_obligatory } from "$lib/paraglide/messages/search_nav_sajda_obligatory.js";
+export { search_nav_sajda_recommended } from "$lib/paraglide/messages/search_nav_sajda_recommended.js";
 export { search_no_results } from "$lib/paraglide/messages/search_no_results.js";
 export { search_pick_prompt } from "$lib/paraglide/messages/search_pick_prompt.js";
 export { search_placeholder } from "$lib/paraglide/messages/search_placeholder.js";
 export { search_results_label } from "$lib/paraglide/messages/search_results_label.js";
 export { search_retry } from "$lib/paraglide/messages/search_retry.js";
 export { search_rtl_disabled } from "$lib/paraglide/messages/search_rtl_disabled.js";
+export { search_section_nav } from "$lib/paraglide/messages/search_section_nav.js";
 export { search_section_quran } from "$lib/paraglide/messages/search_section_quran.js";
 export { search_section_surahs } from "$lib/paraglide/messages/search_section_surahs.js";
 export { search_title } from "$lib/paraglide/messages/search_title.js";

@@ -1,6 +1,8 @@
 import { loadQuranData } from "$lib/data/quran-data-client";
 import type { QuranData } from "$lib/data/quran-data";
 import { TRANSLATION_CATALOGUE_BY_ID } from "$lib/quran/catalogue";
+import { isNavCandidate, matchNav, splitPlaceToken } from "$lib/search/nav/match";
+import type { NavMatch } from "$lib/search/nav/types";
 import { quranSearch } from "$lib/quran/search";
 import {
   DEFAULT_LIMIT,
@@ -22,7 +24,7 @@ import { searchSelection } from "$lib/stores/search-selection.svelte";
 import { storageReport } from "$lib/stores/storage-report.svelte";
 
 import { batchPlan, partitionSearchable, SEARCH_BATCH_SIZE } from "./selection";
-import { suggestSurahs } from "./surah-suggest";
+import { MAX_SUGGESTIONS, suggestSurahs } from "./surah-suggest";
 import type { SectionHit, SectionState, SurahSuggestion } from "./types";
 
 export type { SectionGate, SectionHit, SectionPhase, SectionState, SurahSuggestion } from "./types";
@@ -31,6 +33,8 @@ export type { SectionGate, SectionHit, SectionPhase, SectionState, SurahSuggesti
 export const ARABIC_SECTION_ID = "arabic";
 
 const SEARCH_DEBOUNCE_MS = 140;
+/** Room for the full sajda list plus coordinate matches beside it. */
+const NAV_LIMIT = 18;
 
 export interface SearchEngine {
   get inputQuery(): string;
@@ -40,6 +44,7 @@ export interface SearchEngine {
   readonly sections: ReadonlyMap<string, SectionState>;
   readonly sectionList: readonly SectionState[];
   readonly surahSuggestions: readonly SurahSuggestion[];
+  readonly navSuggestions: readonly NavMatch[];
   run(query: string): void;
   loadMore(sectionId: string): void;
   retry(sectionId: string): void;
@@ -97,6 +102,7 @@ class Engine implements SearchEngine {
    */
   sectionList = $state.raw<readonly SectionState[]>([]);
   surahSuggestions = $state.raw<SurahSuggestion[]>([]);
+  navSuggestions = $state.raw<readonly NavMatch[]>([]);
 
   #sections = new Map<string, SectionState>();
 
@@ -126,10 +132,12 @@ class Engine implements SearchEngine {
     const seq = ++this.#seq;
     this.committedQuery = query;
     this.surahSuggestions = [];
+    this.navSuggestions = [];
     if (query.length < MIN_QUERY_LEN) {
       this.#sections = new Map();
       this.#syncSections();
       this.searching = false;
+      if (isNavCandidate(query)) void this.#suggest(query, seq);
       return;
     }
     this.searching = true;
@@ -246,9 +254,28 @@ class Engine implements SearchEngine {
     try {
       const data = await this.#ensureData();
       if (seq !== this.#seq) return;
-      this.surahSuggestions = suggestSurahs(data.surahs, query);
+      const { place, text } = splitPlaceToken(query);
+      if (place !== null && text.length === 0) {
+        this.surahSuggestions = data.surahs
+          .filter((entry) => entry.place === place)
+          .slice(0, MAX_SUGGESTIONS)
+          .map((entry) => ({
+            num: entry.num,
+            name: entry.name,
+            transliteration: entry.transliteration,
+            arabic: entry.arabic,
+            meaning: entry.meaning,
+            score: 0,
+          }));
+      } else {
+        const ranked = suggestSurahs(data.surahs, text);
+        this.surahSuggestions =
+          place === null ? ranked : ranked.filter((s) => data.surahByNum(s.num)?.place === place);
+      }
+      this.navSuggestions = matchNav(data, query, NAV_LIMIT);
     } catch {
       this.surahSuggestions = [];
+      this.navSuggestions = [];
     }
   }
 

@@ -97,6 +97,8 @@ const surahs: CatalogEntry[] = [
 function fakeQuranData() {
   return {
     surahs,
+    surahByNum: (num: number) => surahs[num - 1],
+    sajdas: () => [{ index: 1, surah: 2, ayah: 34, globalIndex: 41, kind: "recommended" }],
     globalIndexOf: (surah: number, ayah: number) => surah * 1000 + ayah,
   };
 }
@@ -408,5 +410,71 @@ describe("createSearchEngine", () => {
     expect(sectionAfterError?.phase).toBe("error");
     expect(sectionAfterError).not.toBe(sectionAfterCommit);
     expect(listAfterCommit.find((s) => s.id === LTR)?.phase).toBe("done");
+  });
+});
+
+describe("createSearchEngine nav suggestions", () => {
+  it("publishes an ayah-ref chip for a committed reference query", async () => {
+    engine.run("2:34");
+    await commit();
+    expect(engine.navSuggestions.map((match) => match.id)).toEqual(["ayah:2:34"]);
+  });
+
+  it("serves nav chips for short coordinate queries while sections stay idle", async () => {
+    engine.run("55");
+    await commit();
+    expect(engine.navSuggestions.map((match) => match.id)).toEqual(["page:55"]);
+    expect(engine.sections.size).toBe(0);
+    expect(engine.searching).toBe(false);
+  });
+
+  it("keeps short plain text idle", async () => {
+    engine.run("ab");
+    await commit();
+    expect(engine.navSuggestions).toEqual([]);
+    expect(engine.sections.size).toBe(0);
+    expect(engine.searching).toBe(false);
+  });
+
+  it("lists the sajda table for the bare sajda keyword", async () => {
+    engine.run("sajda");
+    await commit();
+    expect(engine.navSuggestions.map((match) => match.id)).toEqual(["sajda:2:34"]);
+  });
+
+  it("filters surah suggestions by a place word", async () => {
+    seedCached([]);
+    engine.run("meccan baqarah");
+    await commit();
+    expect(engine.surahSuggestions).toEqual([]);
+
+    engine.run("meccan fatihah");
+    await commit();
+    expect(engine.surahSuggestions.map((s) => s.num)).toEqual([1]);
+  });
+
+  it("browses a place's surahs for the bare place word", async () => {
+    seedCached([]);
+    engine.run("meccan");
+    await commit();
+    expect(engine.surahSuggestions.map((s) => s.num)).toEqual([1]);
+    expect(engine.navSuggestions.map((match) => match.id)).toEqual(["place:meccan"]);
+  });
+
+  it("drops stale nav and surah suggestions when a newer run lands", async () => {
+    seedCached([]);
+    engine.run("2:34");
+    engine.run("55");
+    await commit();
+    expect(engine.navSuggestions.map((match) => match.id)).toEqual(["page:55"]);
+  });
+
+  it("resets both suggestion lists when quran data fails to load", async () => {
+    seedCached([]);
+    h.loadQuranData.mockRejectedValueOnce(new Error("offline"));
+    engine.run("2:34");
+    await commit();
+    expect(engine.surahSuggestions).toEqual([]);
+    expect(engine.navSuggestions).toEqual([]);
   });
 });

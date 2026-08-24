@@ -1,4 +1,6 @@
 import {
+  globalPagePathFor,
+  juzPathFor,
   surahAyahPathFor,
   surahPathFor,
   surahRouteContext,
@@ -36,6 +38,16 @@ export function surahHrefFor(
 ): string | null {
   const entry = quranData.surahByNum(surah);
   return entry ? surahPathFor(contextFor(sectionId), entry) : null;
+}
+
+/** Juz reader href for the nav chips, preserving the active source. */
+export function juzHrefFor(sectionId: string, n: number): string {
+  return juzPathFor(contextFor(sectionId), n);
+}
+
+/** Mushaf page reader href for the nav chips, preserving the active source. */
+export function pageHrefFor(sectionId: string, n: number): string {
+  return globalPagePathFor(contextFor(sectionId), n);
 }
 
 /**

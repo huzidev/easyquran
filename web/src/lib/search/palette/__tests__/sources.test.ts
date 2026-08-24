@@ -39,6 +39,7 @@ import {
 } from "../registry";
 import { quranRangesSource } from "../sources/quran-ranges";
 import { quranReferenceSource } from "../sources/quran-reference";
+import { quranSajdasSource } from "../sources/quran-sajdas";
 import { quranSurahsSource } from "../sources/quran-surahs";
 import { quranTextSource } from "../sources/quran-text";
 import { searchRoutesSource } from "../sources/search-routes";
@@ -692,5 +693,91 @@ describe("registry", () => {
     expect(ids).toEqual(["test-strong", "test-weak"]);
     unregisterPaletteSource("test.test-weak");
     unregisterPaletteSource("test.test-strong");
+  });
+});
+
+describe("quran.sajdas source", () => {
+  it("lists all fifteen sajdas for the bare keyword", () => {
+    const entries = run(quranSajdasSource, "sajda");
+    expect(entries).toHaveLength(15);
+    expect(entries.every((entry) => entry.groupId === PaletteGroups.Sajdas.id)).toBe(true);
+    expect(entries.every((entry) => entry.icon === "bookmark")).toBe(true);
+  });
+
+  it("labels and annotates the surah-scoped sajda", () => {
+    const entries = run(quranSajdasSource, "sajda 7");
+    expect(labels(entries)).toEqual(["Al-A'raf 7:206"]);
+    expect(entries[0]?.detail).toBe("Recommended prostration");
+    expect(entries[0]?.dedupeKey).toBe("sajda:7:206");
+  });
+
+  it("annotates the obligatory sajda", () => {
+    const entries = run(quranSajdasSource, "sajda 96");
+    expect(labels(entries)).toEqual(["Al-'Alaq 96:19"]);
+    expect(entries[0]?.detail).toBe("Obligatory prostration");
+  });
+
+  it("answers the Arabic keyword with Arabic-Indic digits", () => {
+    expect(labels(run(quranSajdasSource, "سجدة ٧"))).toEqual(["Al-A'raf 7:206"]);
+  });
+
+  it("carries the translation context into its hrefs", () => {
+    const [entry] = run(quranSajdasSource, "sajda 7", TRANSLATED);
+    expect(entry?.href).toContain("/t/ms/basmeih/");
+  });
+
+  it("sits out for non-sajda queries", () => {
+    expect(quranSajdasSource.enabled?.(query("kahf"))).toBe(false);
+    expect(quranSajdasSource.enabled?.(query("juz 5"))).toBe(false);
+    expect(run(quranSajdasSource, "kahf")).toEqual([]);
+  });
+
+  it("is registered as a builtin source", () => {
+    expect(BUILTIN_PALETTE_SOURCES).toContain(quranSajdasSource);
+  });
+});
+
+describe("quran.surahs place filter", () => {
+  it("filters name matches to the queried place", () => {
+    const meccan = run(quranSurahsSource, "meccan kahf");
+    expect(labels(meccan)[0]).toBe("18. Al-Kahf");
+    for (const entry of meccan) {
+      const num = Number.parseInt(entry.label, 10);
+      expect(QURAN.surahByNum(num)?.place).toBe("meccan");
+    }
+    expect(labels(run(quranSurahsSource, "medinan baqarah"))[0]).toBe("2. Al-Baqarah");
+  });
+
+  it("drops name matches from the other place", () => {
+    expect(run(quranSurahsSource, "meccan baqarah")).toEqual([]);
+  });
+
+  it("browses a place's surahs for the bare place word", () => {
+    const entries = run(quranSurahsSource, "meccan");
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.length).toBeLessThanOrEqual(7);
+    for (const entry of entries) {
+      expect(entry.groupId).toBe(PaletteGroups.Surahs.id);
+    }
+    const nums = entries.map((entry) => Number.parseInt(entry.label, 10));
+    for (const num of nums) {
+      expect(QURAN.surahByNum(num)?.place).toBe("meccan");
+    }
+  });
+
+  it("answers the Arabic place word", () => {
+    expect(labels(run(quranSurahsSource, "مكية الفاتحة"))).toEqual(["1. Al-Fatihah"]);
+  });
+});
+
+describe("coordinate keyword gating with sajda and place aliases", () => {
+  it("full text sits out pure sajda and place coordinate queries", () => {
+    expect(quranTextSource.enabled?.(query("sajda"))).toBe(false);
+    expect(quranTextSource.enabled?.(query("meccan"))).toBe(false);
+    expect(quranTextSource.enabled?.(query("مكية"))).toBe(false);
+  });
+
+  it("full text still runs when free text survives the strip", () => {
+    expect(quranTextSource.enabled?.(query("meccan kahf"))).toBe(true);
   });
 });
