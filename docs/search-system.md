@@ -47,7 +47,7 @@ Normalization (`search/normalize.ts`, `normalizeArabicWithMap`): strips harakat 
 
 # Part 2 — Non-goals (v1)
 
-- **No server changes.** `/quran/search` stays Arabic-only, exact-substring. Translation search and fuzzy matching are client-side. Rationale: the 30/60 s search rate-limit budget, the parity contract, and the fact that the client already holds the bytes. Revisit in Part 9.
+- **No server search integration — owner decision (2026-08), out of scope, not deferred.** `/quran/search` stays exactly as it is (Arabic-only, exact-substring). All search enhancements in this doc are client-side only: fold/distance matching is palette-local, translation search is worker-local. The server never gains a translation-scope or fuzzy search endpoint. (Rationale that made this cheap: the client already holds the bytes; the 30/60 s search rate-limit budget and the parity contract stay untouched.)
 - **No FTS.** No FTS5 tables, no `MATCH`, no tokenization/relevance engine. (FTS5 *is* compiled into the shipped `sqlite3.wasm` — `ENABLE_FTS5`/`fts5_api` symbols present, verified via `strings`; it is unusable on deserialized READONLY DBs anyway, and building a writable sidecar index would double stored bytes for text the client already has. Recorded as an escape hatch, not used.)
 - **No Arabic-script typo tolerance.** `normalizeArabic` covers diacritics/alef forms; letter-level Arabic edit distance (البقصرة) is deferred — it needs its own key design (hamza/alef families, ta-marbuta already folded) and has different collision behavior. Scoped out, not forgotten (Part 9).
 - **No changes to the reader search drawer** (`web/src/routes/(application)/app/_reader/Results.svelte`) — palette-first; drawer integration follows D01's pagination/URL-state work.
@@ -354,7 +354,6 @@ Rebuild is ~once per session; persisting would add 2–4 MB/translation of dupli
 # Part 9 — Deferred / future
 
 - **Arabic-script typo tolerance** (letter-level edit distance over `normalizeArabic` output; needs its own key design — hamza/alef families behave differently from Latin).
-- **Server-side translation search / fuzzy search** (rate-limit budget, ETag carve-out reuse, parity fixtures for `normalizeLatin` if it ever crosses the API — currently worker-only by design).
 - **`en.transliteration` romanization corpus** with fold keys (phrase-level translit full-text — the bridge between Designs A and B).
 - **Reader drawer surface + pagination/URL state/share routes** (D01).
 - **Relevance ranking** for full-text (both corpora) — D01.
