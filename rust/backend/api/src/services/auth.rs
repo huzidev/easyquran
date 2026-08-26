@@ -77,16 +77,19 @@ impl AuthBackend {
     }
 
     pub fn check_password(password: String, hash: &str) -> Result<bool, AuthError> {
-        verify_password(password, hash)
-            .map(|_| true)
-            .map_err(|_| AuthError::new(AuthErrorCode::InvalidCredentials))
+        // A verification failure IS the "wrong password" answer — argon2 signals
+        // plain mismatches as errors, so any Err here means "did not verify"
+        // (wrong password or unusable hash) and must surface as Ok(false).
+        // Returning Err propagated through authenticate_password into the login
+        // handler's catch-all 500 "Authentication error" arm for every wrong
+        // password (and the dummy-verify twin below did the same for unknown
+        // emails).
+        Ok(verify_password(password, hash).is_ok())
     }
 
     fn run_dummy_password_verify(password: String) -> Result<bool, AuthError> {
         let hash: &str = DUMMY_VERIFY_HASH.as_str();
-        verify_password(password, hash)
-            .map(|_| true)
-            .map_err(|_| AuthError::new(AuthErrorCode::InvalidCredentials))
+        Ok(verify_password(password, hash).is_ok())
     }
 
     async fn run_blocking_dummy_verify(password: String) -> Result<(), AuthError> {
@@ -648,6 +651,25 @@ mod tests {
             dummy.starts_with("$argon2id$"),
             "DUMMY_VERIFY_HASH must be an Argon2id PHC string, got: {dummy:?}"
         );
+    }
+
+    #[test]
+    fn check_password_reports_mismatch_as_ok_false_not_err() {
+        let hash = password_auth::generate_hash("correct-horse-battery");
+        assert!(matches!(
+            AuthBackend::check_password("correct-horse-battery".to_string(), &hash),
+            Ok(true)
+        ));
+        let wrong = AuthBackend::check_password("wrong-password".to_string(), &hash);
+        assert!(
+            matches!(wrong, Ok(false)),
+            "a wrong password must surface as Ok(false) — Err propagates into the login handler's 500 'Authentication error' arm, got: {wrong:?}"
+        );
+        // An unusable hash is also just "did not verify", not an internal error.
+        assert!(matches!(
+            AuthBackend::check_password("x".to_string(), "not-a-hash"),
+            Ok(false)
+        ));
     }
 
     // --- W8e durable session binding ------------------------------------------
