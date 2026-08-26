@@ -8,7 +8,6 @@ import type {
   UserProfile,
 } from "$lib/auth/auth-client";
 import { createRegisterFlow } from "$lib/auth/flows.svelte";
-import type { FlowStateLike } from "$lib/auth/flows.svelte";
 
 const UNVERIFIED: UserProfile = {
   id: 9,
@@ -36,7 +35,9 @@ function mockClient(): AuthClient & {
   } as never;
 }
 
-function mockState(): FlowStateLike {
+// Unannotated so callers keep the vi.fn() types (tests override probe); the
+// object structurally satisfies FlowStateLike at the createRegisterFlow call.
+function mockState() {
   // SAFETY: test double — every FlowStateLike member is a vi.fn() with a matching signature; flows only invoke them.
   return {
     transition: vi.fn().mockResolvedValue(undefined),
@@ -44,7 +45,7 @@ function mockState(): FlowStateLike {
     setTwoFaPending: vi.fn(),
     reset: vi.fn(),
     probe: vi.fn().mockResolvedValue({ kind: "anonymous" }),
-  } as FlowStateLike;
+  };
 }
 
 function ok<T>(data: T, rotated = false): AuthRequestResult<T> {
@@ -169,6 +170,41 @@ describe("RegisterFlow register->login->verification", () => {
     expect(flow.genericError).toBe("Email or password is incorrect.");
     expect(flow.fieldErrors).toEqual({});
     expect(state.setUser).not.toHaveBeenCalled();
+  });
+
+  it("register 409 AUTH_ALREADY_AUTHENTICATED -> adopts the live session, done", async () => {
+    const client = mockClient();
+    const state = mockState();
+    state.probe.mockResolvedValue({ kind: "authenticated", user: VERIFIED });
+    client.unsafeRequest.mockResolvedValueOnce(
+      err(409, { type: "AUTH_ALREADY_AUTHENTICATED", message: "Already authenticated" }),
+    );
+    const flow = createRegisterFlow({ client, state });
+    flow.email = "new@eq.test";
+    flow.password = "strong-password-1";
+    flow.confirmPassword = "strong-password-1";
+    const res = await flow.submit();
+    expect(res).toBe(true);
+    expect(flow.step).toBe("done");
+    expect(state.setUser).toHaveBeenCalledWith(VERIFIED);
+    expect(client.unsafeRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("register ok but login 409 AUTH_ALREADY_AUTHENTICATED -> adopts the live session", async () => {
+    const client = mockClient();
+    const state = mockState();
+    state.probe.mockResolvedValue({ kind: "authenticated", user: VERIFIED });
+    client.unsafeRequest
+      .mockResolvedValueOnce(okStatus(201, UNVERIFIED))
+      .mockResolvedValueOnce(err(409, { type: "AUTH_ALREADY_AUTHENTICATED" }));
+    const flow = createRegisterFlow({ client, state });
+    flow.email = "new@eq.test";
+    flow.password = "strong-password-1";
+    flow.confirmPassword = "strong-password-1";
+    const res = await flow.submit();
+    expect(res).toBe(true);
+    expect(flow.step).toBe("done");
+    expect(state.setUser).toHaveBeenCalledWith(VERIFIED);
   });
 
   it("does NOT call verification endpoints during registration", async () => {

@@ -10,6 +10,7 @@ import {
 } from "$lib/auth/auth-client";
 import {
   ACCOUNT_EXISTS_RESEND,
+  ALREADY_SIGNED_IN_RESET,
   CREDENTIAL_FAILURE,
   classifyAuthError,
   GENERIC_TRY_AGAIN,
@@ -84,6 +85,24 @@ function isTotpRequired(data: unknown): { totpToken: string } | null {
 interface CredentialFailure {
   readonly genericError: string | null;
   readonly fieldErrors: Readonly<Record<string, string>>;
+}
+
+// The unauthenticated-guarded endpoints (/auth/v1/log_in, /register, …) answer
+// 409 AUTH_ALREADY_AUTHENTICATED when the browser still holds a valid session —
+// e.g. a stale form after signing in elsewhere. Rather than surfacing a broken
+// form, adopt that session: probe it, run the login transition, and let the
+// caller complete the logged-in path.
+async function adoptAlreadyAuthenticatedSession(
+  state: FlowStateLike,
+  status: number,
+  error: AuthErrorEnvelope | null,
+): Promise<boolean> {
+  if (status !== 409 || error?.type !== "AUTH_ALREADY_AUTHENTICATED") return false;
+  const probe = await state.probe();
+  if (probe?.kind !== "authenticated") return false;
+  await state.transition({ kind: "login" });
+  state.setUser(probe.user);
+  return true;
 }
 
 // Shared by LoginFlow/RegisterFlow: same credential-error->form-state mapping in both.
@@ -166,6 +185,10 @@ export class LoginFlow {
         body: { email: this.email, password: this.password },
       });
       if (!res.ok) {
+        if (await adoptAlreadyAuthenticatedSession(this.state, res.status, res.error)) {
+          this.step = "done";
+          return true;
+        }
         this.fail(res.status, res.error);
         return false;
       }
@@ -216,6 +239,11 @@ export class LoginFlow {
         body: { totp_token: this.#totpToken, code: this.code },
       });
       if (!res.ok) {
+        if (await adoptAlreadyAuthenticatedSession(this.state, res.status, res.error)) {
+          this.step = "done";
+          this.#totpToken = null;
+          return true;
+        }
         this.fail(res.status, res.error);
         if (this.fieldErrors.code) {
           this.genericError = null;
@@ -304,6 +332,10 @@ export class RegisterFlow {
         },
       });
       if (!res.ok) {
+        if (await adoptAlreadyAuthenticatedSession(this.state, res.status, res.error)) {
+          this.step = "done";
+          return true;
+        }
         this.step = "form";
         this.fail(res.status, res.error);
         return false;
@@ -328,6 +360,10 @@ export class RegisterFlow {
       body: { email: this.email, password: this.password },
     });
     if (!res.ok) {
+      if (await adoptAlreadyAuthenticatedSession(this.state, res.status, res.error)) {
+        this.step = "done";
+        return true;
+      }
       this.step = "form";
       this.fail(res.status, res.error);
       return false;
@@ -499,6 +535,13 @@ export class ForgotPasswordFlow {
       if (!res.ok) {
         if (res.status === 0) {
           this.genericError = NETWORK_ERROR;
+          return false;
+        }
+        // Password reset is meaningless with a live session — the API's
+        // unauthenticated guard answers 409; tell the user instead of a code
+        // step that can never verify.
+        if (res.status === 409 && res.error?.type === "AUTH_ALREADY_AUTHENTICATED") {
+          this.genericError = ALREADY_SIGNED_IN_RESET;
           return false;
         }
         // The API answers unknown emails with an explicit RecordNotFound (404) —

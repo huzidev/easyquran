@@ -75,6 +75,21 @@ describe("ForgotPasswordFlow request (explicit account-existence contract)", () 
     expect(flow.successMessage).toBeNull();
   });
 
+  it("409 AUTH_ALREADY_AUTHENTICATED -> already-signed-in copy, stays on request step", async () => {
+    const client = mockClient();
+    const state = mockState();
+    client.unsafeRequest.mockResolvedValueOnce(
+      err(409, { type: "AUTH_ALREADY_AUTHENTICATED", message: "Already authenticated" }),
+    );
+    const flow = createForgotPasswordFlow({ client, state });
+    flow.email = "signed-in@eq.test";
+    const res = await flow.request();
+    expect(res).toBe(false);
+    expect(flow.step).toBe("request");
+    expect(flow.genericError).toBe("You're already signed in. Sign out first to reset your password.");
+    expect(flow.successMessage).toBeNull();
+  });
+
   it("429 rate-limit on request -> rate-limit message", async () => {
     const client = mockClient();
     const state = mockState();

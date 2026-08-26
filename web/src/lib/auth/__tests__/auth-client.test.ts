@@ -361,6 +361,31 @@ describe("error envelope decoding", () => {
     });
   });
 
+  it("decodes the middleware-wrapped AuthError envelope (code under `error`)", () => {
+    const env = decodeErrorEnvelope({
+      error: {
+        code: "AUTH_ALREADY_AUTHENTICATED",
+        context: null,
+        message: "Already authenticated",
+      },
+    });
+    expect(env).toEqual({
+      type: "AUTH_ALREADY_AUTHENTICATED",
+      message: "Already authenticated",
+    });
+  });
+
+  it("top-level `type` wins over a nested `code` when both shapes appear", () => {
+    const env = decodeErrorEnvelope({
+      type: "AUTH_007",
+      status: 429,
+      message: "slow down",
+      error: { code: "IGNORED", message: "nested" },
+    });
+    expect(env?.type).toBe("AUTH_007");
+    expect(env?.message).toBe("slow down");
+  });
+
   it("decodeUserProfile tolerates missing optional fields and rejects malformed input", () => {
     expect(decodeUserProfile(null)).toBeNull();
     expect(decodeUserProfile({ email: "x" })).toBeNull();

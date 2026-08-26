@@ -2,7 +2,7 @@ import type { AuthStatus } from "./auth-state.svelte";
 import { postAuthPath } from "./post-auth-path";
 import type { UserProfile } from "./auth-client";
 
-const GUEST_ONLY_PATHS = new Set(["/login", "/register"]);
+const GUEST_ONLY_PATHS = new Set(["/login", "/register", "/forgot-password"]);
 
 export function guestOnlyRedirect(
   pathname: string,

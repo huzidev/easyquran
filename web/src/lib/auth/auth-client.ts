@@ -111,12 +111,17 @@ export function decodeUserProfile(raw: unknown): UserProfile | null {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- raw is the unparsed JSON error body from fetch; this function is the I/O boundary parser for it
 export function decodeErrorEnvelope(raw: unknown): AuthErrorEnvelope | null {
   if (!isWireObject(raw)) return null;
-  const o = raw;
+  // Two wire shapes reach the client: ErrorResponse bodies (fields at the top
+  // level, discriminator in `type`) and middleware-rendered AuthError bodies
+  // (fields nested under `error`, discriminator in `code` — e.g. the 409
+  // {"error":{"code":"AUTH_ALREADY_AUTHENTICATED",...}} guard rejection).
+  const o = !isString(raw.type) && isWireObject(raw.error) ? raw.error : raw;
   const out: AuthErrorEnvelope = {};
   if (isString(o.type)) out.type = o.type;
+  if (!out.type && isString(o.code)) out.type = o.code;
   if (isNumber(o.status)) out.status = o.status;
   if (isString(o.message)) out.message = o.message;
-  if (o.context !== undefined) out.context = o.context;
+  if (o.context !== undefined && o.context !== null) out.context = o.context;
   if (isNumber(o.retry_after)) out.retry_after = o.retry_after;
   if (isString(o.request_id)) out.request_id = o.request_id;
   return out;

@@ -122,6 +122,40 @@ describe("LoginFlow credentials", () => {
     expect(res).toBe(false);
     expect(flow.genericError).toMatch(/network/i);
   });
+
+  it("409 AUTH_ALREADY_AUTHENTICATED -> adopts the live session and completes", async () => {
+    const client = mockClient();
+    const state = mockState();
+    state.probe.mockResolvedValue({ kind: "authenticated", user: PROFILE });
+    client.unsafeRequest.mockResolvedValueOnce(
+      err(409, { type: "AUTH_ALREADY_AUTHENTICATED", message: "Already authenticated" }),
+    );
+    const flow = createLoginFlow({ client, state });
+    flow.email = "x@y.z";
+    flow.password = "whatever-12345";
+    const res = await flow.submitCredentials();
+    expect(res).toBe(true);
+    expect(flow.step).toBe("done");
+    expect(flow.genericError).toBeNull();
+    expect(state.transition).toHaveBeenCalledWith({ kind: "login" });
+    expect(state.setUser).toHaveBeenCalledWith(PROFILE);
+  });
+
+  it("409 with a dead session -> falls through to the classified copy", async () => {
+    const client = mockClient();
+    const state = mockState();
+    state.probe.mockResolvedValue({ kind: "anonymous" });
+    client.unsafeRequest.mockResolvedValueOnce(
+      err(409, { type: "AUTH_ALREADY_AUTHENTICATED", message: "Already authenticated" }),
+    );
+    const flow = createLoginFlow({ client, state });
+    flow.email = "x@y.z";
+    flow.password = "whatever-12345";
+    const res = await flow.submitCredentials();
+    expect(res).toBe(false);
+    expect(flow.step).toBe("credentials");
+    expect(state.setUser).not.toHaveBeenCalled();
+  });
 });
 
 describe("LoginFlow CSRF refresh on rotated=false fallback", () => {
