@@ -1,7 +1,7 @@
 use crate::error::{DbResult, ErrorCode, ErrorResponse};
 use chrono::Utc;
 use ruxlog_types::PaginatedList;
-use sea_orm::{entity::prelude::*, Order, QueryOrder, Set, IntoActiveModel};
+use sea_orm::{entity::prelude::*, IntoActiveModel, Order, QueryOrder, Set};
 
 use super::*;
 

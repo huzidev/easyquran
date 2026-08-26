@@ -143,16 +143,26 @@ pub async fn resend(
     // Same contract as the forgot-password DELIVERY block: this is the single
     // place the plaintext code leaves the request. Change how a code reaches the
     // user (SMTP, log file, test fixture…) by editing ONLY this block.
-    // Non-production logs the code and treats delivery as done (no SMTP in dev);
-    // production emails it and fails the request on a transport error. NEVER log
-    // the code on the production branch.
+    // Non-production logs the code AND echoes it in the response body (dev has
+    // no SMTP, so the network tab is the retrieval path while testing);
+    // production emails it and fails the request on a transport error. NEVER
+    // log or echo the code on the production branch.
     if matches!(crate::config::settings::is_production(), Ok(false)) {
         info!(
             user_id,
             verification_code = %code,
             "DEV delivery: email-verification code (non-production build)"
         );
-    } else if let Err(err) = send_email_verification_code(&state.mailer, &user.email, &code).await {
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "message": "Verification email sent",
+                // DEV ONLY (see DELIVERY comment above): echoed for testing.
+                "code": code,
+            })),
+        ));
+    }
+    if let Err(err) = send_email_verification_code(&state.mailer, &user.email, &code).await {
         error!(
             user_id,
             error_kind = mail_error_kind(&err),
@@ -306,4 +316,25 @@ pub async fn admin_issue_code(
         StatusCode::OK,
         Json(json!({ "message": "Verification code issued and emailed" })),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    // Guards only the handler source — the test's own text must not satisfy the
+    // assert, so the pinned strings appear in the handler, not here.
+    #[test]
+    fn dev_response_code_echo_stays_gated() {
+        let src = include_str!("controller.rs");
+        let (code, _) = src
+            .split_once("#[cfg(test)]")
+            .expect("tests module present");
+        let delivery = code
+            .split("DELIVERY: verification-code hand-off")
+            .nth(1)
+            .expect("delivery block marker present");
+        assert!(
+            delivery.contains("is_production()"),
+            "the response-body code echo must stay inside the !is_production() DELIVERY branch — production must never return the plaintext code"
+        );
+    }
 }
