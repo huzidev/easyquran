@@ -1,300 +1,276 @@
 # EasyQuran — Quran system
 
-Single source of truth for the shipped system: Quran data, API, delivery, caching, search normalization, UI i18n, web auth, and Rust request security. **Implemented-system index** — every claim is verified against code; implementation detail lives in code, not here. Condensed.
+Canonical contract for shipped Quran data, API, delivery, caching, UI locale handling, web
+auth isolation, and Rust ingress. Code owns implementation detail; this document records
+boundaries that must survive refactors.
 
-Parts 1–5 are contracts / settled ground. Part 6 is status, known gaps, and follow-ons.
+Related subsystem docs:
+
+- [`search-system.md`](./search-system.md) owns client search behavior and ranking.
+- [`settings-system.md`](./settings-system.md) owns settings, storage administration, and
+  reader presentation preferences.
+- [`my-plan-raw.md`](./my-plan-raw.md) is owner-authored intent, not delivered architecture.
+
+Parts 1–5 are settled contracts. Part 6 lists current gaps and product decisions.
 
 ---
 
-# Part 1 — Hard rules
+# Part 1 — Hard rules and Quran delivery
 
-- Quran databases (Arabic + every translation) are **immutable**. Sourced from Tanzil.net, which permits redistribution unmodified with attribution (credited on the About page). No modifications, no versioning.
-- **`db/` is gitignored and never committed.** The DBs live in R2 (`easyquran` bucket, public base `https://r2.easyquran.fyi`, keys `tanzil/arabic/…`, `tanzil/translations/…`) and reach disk via two provisioners: the tracked `deploy/fetch-quran-db.sh` (`just quran-fetch [arabic|all]` — credential-free read-only HTTPS GETs, keys from the baked maps) fills `db/` on dev machines and in CI before the web build; the one-shot `quran-init` compose service (running `deploy/provision-quran.sh`, baked into the api image) fills the `quran_data` volume on the deploy host — idempotent per file, no hashing, and `QURAN_DB_DIR` as an optional absolute-path bind-mount escape hatch. Nothing that must survive a fresh clone may live under `db/`.
-- **No content versioning.** No `contentVersion`/`searchVersion`, no version segment in R2 keys, no hash-keyed cache dirs. A database's identity is its **id** (`uthmani`, `simple-clean`, `en.sahih`, …).
-- **Ayah text is verbatim.** The source `text` is never normalized, split, trimmed, or reordered — SQLite read → in-memory store → JSON → SSG HTML. `9:1` has no basmala, `1:1` *is* the basmala, `27:30` carries one mid-ayah, `95:1`/`97:1` carry a shadda spelling: all correct source state, none of it a cleanup target.
-- **Integrity: SHA-256 is manual audit, never automated.** A DB's identity is its id; sha never names a cache key, profile, or catalogue row, and never digests **Quran data** at runtime. The one runtime sha over text is a digest of the normalized **search query** (user input), folded into `/search`'s ETag for variance — never over the corpus. The corpus + sqlite digests are checked by hand (`just quran-audit` [from `rust/backend/api/`], `pnpm audit:arabic`, `pnpm verify`) — not at boot, not on download (those size-check only, `verifyBytes`). Runtime protection is **content asserts** (6236 rows, tiling, ayah keys, packaging). Crypto sha (CSRF/HMAC/Argon2/PKCE) is unrelated and stays.
-- **Boot is fail-fast.** Missing/corrupt source, XML failure, tiling failure, or wrong bismillah split count → exit non-zero (shape asserts, not sha).
-- **Arabic renders SSG.** Translated pages render SSR + disk-TTL. Never ISR.
-- **UI locale and Qur'an translation-content locale are independent axes.** Never infer one from the other. UI locale is frontend-web-only — it may select compiled UI copy, public path, reader HTML cache partition, and static reader artifact; no Rust endpoint, request header, query parameter, DB column, migration, Quran catalogue lookup, or translation-source selection may receive it. Use `UiLocale`, never `lang`/`languageCode`/`TranslationId`.
-- **URLs own locale.** Marketing: `/` is English, `/ar/` is Arabic — no locale cookie, `localStorage`, or Accept-Language influence (a locale switch is a link, not a remembered preference). Reader: every canonical reader path is `/{UiLocale}/app/**` (`/en/app/**`, `/ar/app/**`); a valid legacy `/app/**` request gets a `307` + `Cache-Control: no-store` to its exact `/en/app/**` equivalent and never renders reader HTML or enters the translated-reader disk cache. This reversible alias avoids duplicate canonical shells during rollout; promote it to a permanent redirect or remove it once the offline-cache and rollback window are approved.
-- **No machine translation ships.** Every catalog change is reviewed by a fluent human. Qur'an text is not UI copy: the footer quotation stays verbatim with `lang="ar" dir="rtl"`, never moved into a UI catalog.
-- **Message calls run at component/render time or in a request-scoped function** — never module-level config, a static initializer, or another server-global context. Generated Paraglide output (`src/lib/paraglide/`) is gitignored build artefact; edit `project.inlang/` + `messages/` only.
-- **Reader navigation preserves translation context.** Every reader href wraps the `surah*For(ctx, …)` / `globalPagePathFor(ctx, …)` / `juzPathFor(ctx, …)` family (from `web/src/lib/data/quran.ts`) and passes the result to `readerHrefFor(ui, …)`; never the Arabic-only helpers or hand-built `/app/` strings. Machine-guarded by `nav-guard.test.ts`.
+## Hard rules
 
-## Data
+- Quran databases are immutable Tanzil.net source material. Never modify or version them.
+- `db/` is gitignored. Databases live in R2 and are provisioned onto disk; nothing required
+  after a fresh clone may live under `db/`.
+- Database identity is its id (`uthmani`, `simple-clean`, `en.sahih`, …), never a digest.
+- SHA-256 over Quran data is manual audit only: `just quran-audit`, `pnpm audit:arabic`, and
+  `pnpm verify` inside `db/quran/translations`. Build, boot, runtime, ETag, cache, and catalogue
+  paths never hash Quran data. Cryptographic use for CSRF, HMAC, Argon2, PKCE, and normalized
+  search-query variance is unrelated.
+- Ayah text remains verbatim from SQLite through API, SSG, and display. Never normalize,
+  trim, split, reorder, or “repair” source text.
+- Boot fails on missing/corrupt sources, invalid XML, broken tiling, invalid coordinates, or
+  opener-packaging failure. Runtime integrity uses content and shape assertions, never hashes.
+- Arabic reader routes use SSG. Translated reader routes use SSR plus a seven-day disk cache;
+  they are never prerendered and never use ISR.
+- UI locale and Quran translation-content locale are independent. UI locale never selects a
+  source id, API source, DB, migration, request header, or query parameter.
+- Reader navigation preserves translation context. Use the `surah*For(ctx, …)`,
+  `globalPagePathFor(ctx, …)`, and `juzPathFor(ctx, …)` helpers, then `readerHrefFor(ui, …)`.
+  Components never use Arabic-only helpers or hand-build `/app/` URLs.
+- No machine translation ships. Quran text is not UI copy.
 
-- `quran-uthmani.sqlite` = display **and search** corpus (indexes the full Uthmani text; ornaments are searchable: ۞→199, ۩→15). `quran-simple-clean.sqlite` = a readable API/canonical-view script (still Rust-resident + audited; no longer the search corpus). Both: `quran_text("index" PK, sura, aya, text)` + `idx(sura,aya)`, 6236 rows, read **directly, read-only**. Not consolidated; no canonical db is built.
-- `quran-data.xml` = metadata only (no verse text): 114 surah, 6236 ayah, 604 pages, 30 juz, 556 ruku, 240 hizb-quarter, 7 manzil, 15 sajda. Web consumes one compact `web/static/quran-meta/quran-data.json`; Rust parses the XML in memory at boot. That JSON's header row (`[digest, "1.0", "cc-by"]`) is **provenance only** — format-validated at load, never compared, never keyed on.
-- **Global ayah index:** `quran_text."index"` is canonical — contiguous `1..6236`, unique, ordered by surah then ayah, `= sura.start + aya` (XML `start` zero-based, `aya` one-based). Asserted at boot; `/range` and its cap of 300 rest on it.
-- **Marker families tile `[1,6236]`** with no gap or overlap (page/juz/ruku/hizb-quarter/manzil). `<quarter>` carries no hizb attribute — derive: `hizb = ((i-1)/4)+1`, `quarterInHizb = ((i-1)%4)+1`.
-- **No FTS.** Arabic search = normalize + substring-scan the 6236 **Uthmani** rows (ornaments retained → searchable). Client-side search additionally ships palette-local fold/distance surah matching and worker-local full-text search over cached translation DBs ([`docs/search-system.md`](./search-system.md)) — both operate over derived JS corpora, but only the translation path is a substring scan; the surah fold tier is fold-key equality plus bounded edit distance, and the palette's raw ladder keeps its prefix/substring tiers; FTS5 is compiled into the shipped wasm but unused (escape hatch only). The server `/quran/search` stays Arabic-only exact-substring — no server search integration, ever (owner decision 2026-08).
-- Translations: 115 dumps → one `<id>.sqlite` each, same schema, across 44 languages. 186 MiB total: p50 1.25, p95 3.10, max 12.43 MiB. **Non-commercial license** — revisit if the project monetizes. The web's baked catalogue (`web/src/lib/data/translations.json`) is a flat positional array — `[id, language, languageCode, direction, name, translator, filePath, sizeBytes]`, decoded by `TranslationField` in `quran/catalogue.ts`; no sha256 (id-keyed).
+## Sources and metadata
 
-## API — Rust `/quran`
+- `quran-uthmani.sqlite` is display and Arabic-search corpus.
+- `quran-simple-clean.sqlite` is the readable API/canonical-view script.
+- Both expose `quran_text("index", sura, aya, text)` with 6,236 contiguous rows. They are read
+  directly and read-only; no consolidated canonical DB is built.
+- `quran-data.xml` supplies metadata only: 114 surahs, 6,236 ayahs, 604 pages, 30 juz, 556
+  ruku, 240 hizb quarters, 7 manzil, and 15 sajda. Web consumes the compact generated JSON;
+  Rust parses XML at boot.
+- `quran_text."index"` is canonical global ayah order: `1..6236`, unique, ordered by surah
+  then ayah, and equal to XML's zero-based surah start plus one-based ayah number.
+- Page, juz, ruku, hizb-quarter, and manzil ranges tile the corpus without gaps or overlap.
+- Translation catalogue contains 115 immutable SQLite dumps across 44 languages. Web decodes
+  baked `[id, language, languageCode, direction, name, translator, filePath, sizeBytes]`
+  records. Production artifact selection uses baked id maps only.
+- Translation redistribution is non-commercial; revisit licensing before monetization.
 
-Module `quran_v1`, nested at `/quran`. **No `/quran/v1`. No `/version`.**
+Provisioning has two paths:
 
-One shape per navigation family — `/{family}` list, `/{family}/{n}` detail, `/{family}/{n}/ayahs` text — for `surahs`, `juzs`, `pages`, `rukus`, `hizb-quarters`, `manzils`, plus `sajdas` (list + detail). Also:
+- `deploy/fetch-quran-db.sh` / `just quran-fetch` fills development and CI disk from baked R2
+  paths using credential-free HTTPS reads.
+- Compose's one-shot `quran-init` service fills deployed `quran_data`; `QURAN_DB_DIR` may opt
+  into an absolute host bind mount.
 
-- `GET /quran/ayahs`, `/quran/ayahs/{surah}/{ayah}`, `/quran/ayahs/{verseKey}` (redirect).
-- `GET /quran/sources/{id}/surah/{n}` → `Envelope<QuranSurahTextDto>`; `GET /quran/sources/{id}/range?from=&to=` → `Envelope<RangeText>` (cap 300). **This pair is also the translation read API** — it is already source-parameterized, so translations need no new routes, only a resolver.
-- `GET /quran/search?q=…` — substring scan over normalized Uthmani (ornaments retained → searchable). A query must be 3..=64 Unicode scalars after normalization **or** contain a Quranic ornament mark (so a lone `۞`→199 / `۩`→15 works, without relaxing the 3-char floor for plain text; helper `contains_searchable_ornament` matches `U+06D6–06DC | U+06DE–06ED`). `kind` is an **output** discriminator; only `ayah` is produced today (`opener` reserved, never emitted). This endpoint is the server's entire search scope — Arabic-only exact substring, by owner decision (2026-08): typo-tolerant surah matching is palette-local and translation full-text is worker-local; neither ever crosses the API.
-- `GET /quran/random` — deterministic ayah-of-the-day (date-seeded LCG, not RNG).
-- `GET /quran/scripts` and bare `GET /quran/sources` expose metadata for mobile/API consumers; the web does not call them. `GET /quran/health/ready` remains available; `/quran/openapi.json` is gated by the `openapi` feature.
-- **Rate limits, per IP:** 600/60s general, 30/60s on search — `/search` mounts on a separate router that carries the tighter 30/60s and remains under the merged 600/60s `quran-v1` ceiling too, so the CPU-heavy scan is **double-limited by design** (its own 30/60s trips first).
-- `Envelope<T> = { data: T }`. `QuranApiError` is the closed error shape — nested `{ error: { code, message, detail } }` for 400 / 404 / 5xx — so a failed read never becomes an empty surah. The rate-limit layer's 429 uses the app `ErrorResponse` envelope (`{ type, status, retryAfter, … }`), the gate's store-unavailable 503 uses the gate's flat shape (`{ error, message }`) with **no** `Cache-Control` — neither is `QuranApiError`.
+Both provisioners are idempotent per file and validate expected size/SQLite shape without
+hashing corpus bytes.
 
-**Web routes are slug-based** (`al-fatihah`), the API numeric (`1..=114`). The web adapter resolves slug → number before calling Axum; the backend owns no slug table.
+## Rust API
 
-Auth lives outside `/quran`: password, passkey, web OAuth code flow (google/apple/facebook/github), plus mobile `POST /auth/{google,apple,facebook,github}/v1/token` (client SDK credential → cookie session, **not** JWT). Before Google/Apple SDK sign-in, native clients call provider-local `POST /token/nonce`, use returned `providerNonce` in the SDK request, then submit the signed token; backend consumes that challenge once. Google verifies signed ID-token claims against configured web/mobile audiences; optional access token enables Google UserInfo enrichment with exact subject/email cross-check. Apple verifies its signed identity token against configured web/mobile audiences. Facebook validates user access tokens through current centralized Graph version `debug_token`, requires configured app ownership, then cross-checks debug user id against `/me`; input token travels in POST body, not URL. GitHub validates the user access token through the OAuth-app token inspection endpoint using the configured app credentials, cross-checks the inspected user id against `/user`, and reads verified addresses from `/user/emails`; native authorization needs `user:email` to create or link an account, while an existing provider-id link can sign in without it. All native endpoints reject browser `Origin`, enforce bounded strict payloads, rotate the session, return transient `providerProfile`, use provider-specific rate limits, and never store provider tokens. Provider pictures are not persisted because account avatars use local media ids. Native token and nonce routes are CSRF-exempt.
+Quran routes live under `/quran`; there is no `/quran/v1` or content-version route.
 
-## Normalization + canonical view — parity contract
+- Navigation families expose list/detail/ayah routes for surah, juz, page, ruku,
+  hizb-quarter, manzil, and sajda.
+- `GET /quran/sources/{id}/surah/{n}` and
+  `GET /quran/sources/{id}/range?from=&to=` serve Arabic and translation sources. Range size
+  is capped at 300 ayahs.
+- `GET /quran/search?q=…` remains Arabic-only exact substring search over normalized Uthmani.
+  Client fuzzy-name and translation search never cross this API boundary.
+- `GET /quran/random` is deterministic ayah-of-the-day.
+- `GET /quran/scripts` and `/quran/sources` serve mobile/API consumers; web boot uses baked
+  metadata instead.
+- `/quran/health/ready` exposes readiness and bounded public counts. OpenAPI is feature-gated.
+- Successful payloads use `{ data: T }`. `QuranApiError` owns Quran 400/404/5xx responses;
+  rate-limit and gate middleware retain their app-level error shapes.
 
-One rule set, two implementations (Rust + web Worker) returning **identical ordered results**. The index covers the full Uthmani text and **keeps** standalone Quranic ornaments searchable (`۞`→199, `۩`→15, small waw/yeh `ۥۦ` narrow, stop marks literal); it **strips** intra-cluster combining marks (harakat, maddah `U+0653`, tatweel, superscript alef) so bare queries match.
+Web routes use surah slugs; API routes use numeric `1..=114`. Web resolves slug to number.
 
-- **Strip set (explicit, byte-identical Rust↔web):** `U+064B–U+0658` (harakat + maddah `U+0653`/hamza `U+0654`), `U+0640` (tatweel), `U+0670` (superscript alef), `U+06DD` (end-of-ayah, 0 occ). Stripping maddah `U+0653` is required for substring search — Tanzil Uthmani encodes alef-madda decomposed as `alef+0653` in ~3051 verses, so a bare query must not carry it. No stemmer needed.
-- **Keep (searchable tokens):** standalone ornaments `U+06D6–06DC`, `U+06DE`, `U+06DF–06ED` (incl. small waw/yeh `U+06E5`/`U+06E6`, sajda `U+06E9`).
-- **Fold:** `آ أ إ ٱ → ا`, `ى → ي`, `ة → ه`.
-- **offset map:** normalization emits a normalized-scalar → source-scalar map, so a hit found in normalized space highlights correctly in the rendered script (converted to UTF-16 for the web). The map bridges the harakat/tatweel/`U+0670` strip-gaps; kept ornaments ride through 1:1. The **display layer never normalizes** — every mark renders verbatim.
-- **canonical view** splits each surah into **body + opener** units (opener = rank 0, ayah = rank 1). **Opener classification is two orthogonal enums:** `OpenerKind` = `Verse | Header | None` × `OpenerPackaging` = `NumberedAyah | EmbeddedPrefix | ChapterFlag | SeparateRow | Absent`. Split counts (1 / 112 / 1) asserted at boot. Surahs 95 & 97 carry a shadda variant (`بِّسْمِ`) — match diacritic-insensitively, never exactly.
-- A rule change ships new Rust + web together; it never mutates a sqlite. A shared neutral parity corpus (`web/src/lib/quran/__fixtures__/parity.json`, consumed by Rust `include_str!` + web import) enforces Rust/web identity.
+## Normalization and canonical view
 
-### Normalization rule table (14 rules)
+Rust and web implement one parity-tested Arabic normalization contract:
 
-Our own spec. Fold rules collapse orthographic variants of the same letter; retain/strip rules
-decide which marks are searchable tokens. Rust and web implement this table byte-identically;
-`parity.json` is the shared corpus that proves it.
+- Fold `آ أ إ ٱ → ا`, `ى → ي`, and `ة → ه`.
+- Strip `U+064B–U+0658`, tatweel `U+0640`, superscript alef `U+0670`, and end-of-ayah
+  `U+06DD`.
+- Keep standalone Quranic ornaments `U+06D6–U+06DC`, `U+06DE`, and `U+06DF–U+06ED`
+  searchable, including rub el hizb and sajda marks.
+- Emit normalized-scalar to source-scalar offsets so highlights map back to verbatim display
+  text. Web converts those offsets to UTF-16.
 
-| Rule | Codepoint(s) | Behavior | Why |
-|---|---|---|---|
-| **F1** alef madda | `U+0622` آ | fold → ا | orthographic variant of alef |
-| **F2** alef hamza above | `U+0623` أ | fold → ا | orthographic variant of alef |
-| **F3** alef hamza below | `U+0625` إ | fold → ا | orthographic variant of alef |
-| **F4** alef wasla | `U+0671` ٱ | fold → ا | uniform fold; a bare query typed with plain alef must hit |
-| **F5** alef maqsura | `U+0649` ى | fold → ي | keyboards produce either form |
-| **F6** ta marbuta | `U+0629` ة | fold → ه | keyboards produce either form |
-| **R1** harakat + maddah | `U+064B–U+0658` | strip | intra-cluster marks; queries are typed bare |
-| **R2** superscript alef | `U+0670` ٰ | strip | intra-cluster; uniform strip is the forgiving choice |
-| **R3** tatweel | `U+0640` ـ | strip | pure presentation |
-| **R4** stop marks | `U+06D6–U+06DC` | keep | standalone marks — searchable tokens |
-| **R5** rub el hizb | `U+06DE` ۞ | keep | standalone (199 verses) |
-| **R6** small waw/yeh | `U+06E5`/`U+06E6` ۥۦ | keep | standalone; narrows a search usefully |
-| **R7** sajda | `U+06E9` ۩ | keep | standalone (15 sajda verses) |
-| **R8** end-of-ayah + signs | `U+06DD`/`U+06EA–U+06ED` | keep `06EA–06ED`; strip `06DD` | `06DD` has 0 occurrences in our corpora |
+`web/src/lib/quran/__fixtures__/parity.json` is shared by Rust and web tests. A rule change
+ships both implementations together. Search-specific transliteration and translation-text
+normalization remain presentation transforms outside this parity contract.
 
-Ornaments were formerly stripped, with search running over simple-clean (where they do not
-occur). Switching the index to normalized Uthmani and keeping the ornaments made standalone
-marks searchable. Guarded by `tests/quran_v1.rs::search_finds_ornament_bearing_query` and
-`search_allows_lone_ornament_query` (lone `۞`→199).
+Canonical view represents body plus opener units. `OpenerKind` and `OpenerPackaging` stay
+orthogonal; packaging counts and shadda variants are asserted at boot. SQLite remains
+unchanged.
 
-## Caching
+## Caching and fallback
 
-Two domains, no shared cache; they meet only at the HTTP edge and the `/quran` JSON contract.
+- Rust pins both Arabic corpora in memory. Translation DBs use an on-demand Moka pool with
+  single-flight construction and count/byte bounds.
+- Quran responses are read directly from resident sources and edge-cacheable with weak,
+  id-based ETags. Search variance may digest normalized user query text, never corpus data.
+- Web pins Uthmani in OPFS. Translation DBs download lazily, use id-keyed active-file pointers,
+  and prune by LRU, TTL, count, and bytes.
+- Downloads stage to an id-scoped temporary file, verify baked size and Quran structure, then
+  atomically switch `{sourceId, activeFile}`. A partially written DB can never become active.
+- `/_quran` is the allowlisted same-origin R2 gateway. Runtime remote metadata never selects
+  Quran bytes, size, path, or delivery origin.
+- Service worker cache buckets cover app shell, bounded pages, bounded `__data.json`, and
+  offline pack. `/api/` always bypasses Cache Storage.
+- Translated HTML uses an adapter-node disk cache keyed by build id, source id, route shape,
+  index, and bounded UI locale. Cookie-bearing or session-setting responses bypass it.
+- Browser source reads use one ladder: local → API → local re-check → typed failure. Cold
+  translations may download through the worker during the final local attempt.
+- Browser and SSR share a range fetcher that chunks requests to 300 ayahs and rejects partial
+  or non-adjacent results.
+- API outage memory is passive: transport failures/timeouts and repeated 5xx responses open a
+  circuit; no health probe is generated.
 
-- **Rust, in memory:** both Arabic corpora load at boot and stay resident (never evicted); `Script` accepts `uthmani` | `simple-clean`. The `SearchIndex` is built once from normalized Uthmani. Translations are on-demand (moka pool, single-flight, byte+count bound — see constants).
-- **Rust, responses:** no server-side response store. Reads come straight from the resident corpus; every response is edge-cacheable — weak `ETag` = `quran-corpus : canonical key` (a static id-based tag; the corpus is immutable so a constant ETag is correct — never a digest over Quran data). `/search` is the exception: its canonical key folds in a sha-256 digest of the normalized **query** (user input) for variance. `If-None-Match` → 304. `Cache-Control` per family (see constants). `QuranApiError`-originated 5xx → `no-store` (the rate-limit gate's 503 emits no `Cache-Control`).
-- **Web, OPFS:** the `uthmani` Arabic corpus is eager on boot and pinned (never evicted); `simple-clean` is no longer worker-downloaded (Arabic search uses the Uthmani index; translation full-text search derives per-translation worker-local corpora from the cached translation DBs — LRU-capped, never persisted). **Key = `spec.id`** (identity is the id; the prior `spec.sha256` key was a cache-dir violation). Downloaded bytes are size-checked only. Translations lazily download into OPFS and prune LRU + size + TTL (cap 128 DBs / 256 MiB — covers the 115-DB / 186 MiB corpus with margin; pinned: Arabic + selected stacked translation ids, see "Multiple stacked translations").
-- **Service worker:** four Cache-Storage buckets (app shell, pages LRU, `__data.json` SWR, offline pack) + IDB meta; atomic install/activate/handoff lifecycle; contract shared via `./lib/offline/messages` (only `META_DB`/`META_STORE` + `normalizeDataKey` genuinely duplicated). `UpdateStore` is the sole boot-time registration owner and service-worker registration is the proactive deployment detector; foreground checks are throttled to five minutes. SvelteKit version polling is disabled, with `updated.check()` retained only for browsers without service-worker support. Same-origin `/api/` requests **never** enter any Cache-Storage bucket (unconditional bypass). `eq-data-v1` is bounded by count (`DATA_MAX` 400) and bytes (32 MiB) with per-key `{key, lastUsed, sizeBytes}` metadata, LRU eviction, and startup reconciliation; sizes are measured at put time (never trusted from a compressed `Content-Length`), every deletion path removes metadata, and recency writes are serialized (lockstep with IDB meta). PAGES and DATA keys are normalized over `?mode`/`?more` so query combos cannot fork unbounded entries; offline deep-link reload serves one variant per logical page. Page and data cache purges reset recency; app-shell handoff prunes old versions once every live client re-ACKs (a client always re-ACKs on controller change, so a stale tab cannot stall the prune).
-- **SSR disk-TTL (translated pages only):** `adapter-node` SSR HTML disk cache for the four `/t` reader route families (Arabic routes stay SSG/prerendered). Canonical `(sourceId, kind, index[, localPage])` keys inside a SvelteKit build-id namespace (not Quran versioning), plus a bounded `UiLocale` partition (`__ui-{locale}`) — the Quran identity stays id-based. Atomic tmp+rename writes; `Server-Timing` + `X-EasyQuran-Quran-Cache: hit|miss`; `/health/quran` (web) reports it. Cookie-bearing or session-setting responses are never read from / written to it.
-- **`/_quran` artifact gateway:** same-origin streaming proxy to R2 (allowlist of baked keys, `Range` forwarded, immutable caching, weak id-based ETag). No bytes rewritten or hashed. Dev serving does not go through this route: `web/vite-plugin-quran.ts`'s `enforce: pre` middleware serves allowlisted artifacts from the locally provisioned `db/quran/` tree (`no-store`, same-origin `/_quran` base) whenever the data environment is local (dev default; `PUBLIC_ENV=prod` dev streams from R2 exactly like production).
-- **R2 layout:** `tanzil/arabic/<file>.sqlite`, `tanzil/translations/sqlite/<id>.sqlite`, `tanzil/translations/index.min.json` (mutable, `max-age=300, must-revalidate`), `tanzil/quran-data.xml`. Everything except the catalogue is `immutable`.
+Arabic primary plus up to five client-only stacked translations are supported. Extras never
+alter route identity, canonical URL, server HTML cache key, or primary delivery. `?more=` is
+client-mirrored state; cache keys strip it. Selected extras and current primary are pinned
+against OPFS eviction.
 
-### Baked artifact delivery
+Engagement-gated translation prefetch uses durable local reading activity. Explicit source
+selection bypasses the gate. Arabic-only reading never counts toward translation downloads.
 
-- Authoritative baked maps `{id, sizeBytes, r2Path, sameOriginDeliveryPath}` are built at compile time. Web download URL + size are constructed **only** from baked fields; runtime API metadata never enters the web artifact-selection path.
+## Web delivery
 
-### Crash-safe OPFS replacement
-
-- `sizeBytes` is required at every production `DownloadSpec` boundary (tests may build invalid specs only via an explicit unsafe fixture). Downloads stage into an id-scoped temp file, close it, verify exact baked size, then open the staged SQLite in the worker and assert schema + 6,236 contiguous rows + source id (content asserts, never hashes) before the IDB `{sourceId, activeFile}` pointer switches in one transaction and the old file is removed. Failure keeps/reverts to the last validated active file and cleans temp files. A partially written DB can never become active; a content-validation rejection never silently downgrades to IDB. On first pointer-aware boot a valid legacy `<id>.sqlite` adopts as active; invalid legacy files and abandoned temps never appear as sources. Orphan temps are swept exactly once at worker boot, before any download can stage a temp — eviction never deletes staging temps, so a concurrent prune cannot race an in-flight download. When an OPFS write/verify failure falls back to IDB, the already-fetched bytes are reused (no second download); a failed IDB put is reported honestly (session-only, never a phantom "cached"), and dead IDB handles re-open on `close`/`versionchange` instead of latching.
-
-### Reader fallback ladder + range client data
-
-- **One ladder for both source kinds:** `local → API → local re-check → typed failure` (`withSourceFallback`). Worker readiness is awaited within `LOCAL_BOOT_BUDGET_MS` before choosing API; no worker-status gate may block a read. For **translations** the post-API-failure re-check (and the whole read, when no read API is configured) sends the worker read directly instead of only re-probing `hasTranslation`: the worker downloads the sqlite on demand (single-flight), so a cold translation is served locally — bounded by the artifact download budget plus margin (`COLD_TRANSLATION_READ_TIMEOUT_MS`, after a ≤30s worker-boot wait) — rather than failing fast while the download is in flight. Tier outcomes are typed (`servedBy` + `workerFailure`/`apiFailure`), so worker and API degradation stay independently observable.
-- **One shared range fetcher** (`range-fetch.ts`) for browser and SSR: chunks reads to ≤300 ayahs (`RESPONSE_CAP`), stitches exactly (requested bounds, adjacency across chunks, normalization merge with duplicate rules), and rejects any partial result. The five juz that exceed the cap (19/23/27/29/30) work on every path. `RANGE_CHUNK_TIMEOUT_MS` covers headers **and** complete body decoding. `validateCoordinate` is threaded through the API client, including search.
-- **Range routes trust complete server snapshots.** `RangeReader` installs each immutable server snapshot and skips a duplicate client range read, including SPA route changes. Empty/degraded snapshots retry through a client read keyed by `{sourceId, kind, index}`; the result installs only if the route key still matches, so late recovery cannot cross route or source boundaries. Reader links keep translation context through the `surah*For`/`juzPathFor`/`globalPagePathFor` family.
-- **API outage memory is passive.** Browser surah, range, and search calls share one circuit breaker; translated SSR range misses use the same policy. No health request is sent. Transport failure or timeout opens a cooldown, repeated 5xx responses open it, and one real request becomes the half-open probe after cooldown. Competing probes fail fast into local/server fallback. Caller aborts, ordinary 4xx responses, and malformed payloads never mark the API offline. Successful immutable SSR ranges are held in a bounded LRU with single-flight misses, shared by HTML and `__data.json` loaders.
-- **Pending-translation recovery never reloads the document.** An empty pending translated server load sets `X-EQ-Translation-Pending: 1` + `Cache-Control: no-store`; the service worker treats `no-store` **or** the pending header as uncacheable, deletes a cached pending entry (plus its `eq-data-v1` metadata) on lookup, and pending revalidation never overwrites or deletes a known-good response. Multi-page failure retries in-page; single-page empty data does one `invalidateAll()` then falls back to the ladder.
-- **Boot metadata is baked-only.** Arabic scripts and translation catalogue come from compile-time source profiles plus `translations.json`. Web boot, picker, worker, and translated SSR source validation never call `/scripts` or bare `/sources`.
-
-### Multiple stacked translations (client-only extras)
-
-- **quran.com-style stacking, client-only by contract.** The primary route — Arabic SSG or translated SSR + 7-day disk cache — is untouched; stacking N translations server-side would be intractable for caching. Extras hydrate purely in the browser on top of the primary. On first use an extra's range is served immediately over the HTTP read API (the same local → API → typed-failure ladder) while the background OPFS download warms it; offline extras work only once their DB is in OPFS — offline + cold extra surfaces an error row, never a crash.
-- **Extras are a persisted client selection mirrored to `?more=<id>,<id>`** via `replaceState`, exactly the `mode` precedent. Query-only: `surah*For(ctx,…)` nav helpers, the translated-page disk-cache key, and canonical URLs are unaffected (SEO-neutral). The service worker strips `mode` and `more` from **both** the DATA and PAGES cache keys, so selection combos cannot fork cache entries and offline deep-link reload hits the cached shell. A cold deep link adopts `?more` into the store; navigation re-mirrors it back.
-- **Shape:** Arabic route = Arabic primary + up to 5 extras beneath it; translated route = primary translation + extras (no Arabic on the page). Extras render in verse mode only (reading mode keeps its inline flow), each with its catalogue `languageCode` (`lang`) and direction, its own `translator` label, loading skeleton, and distinct error row. An `aria-hidden` per-ayah skeleton plus one reader-root live region covers loading/error announcements.
-- **Persistence + caps:** the selection persists under a versioned localStorage record (cap 5 extras, dedupe, reorder, cross-tab last-writer-wins). Selected extras **and the current primary** pin against OPFS eviction — an unselected, unpinned DB is a normal artifact subject to TTL/30d + 128/256 MiB pruning, so OPFS thrashes only over genuinely cold translations. The in-memory translation-DB LRU holds the primary + extras + one stale-primary buffer.
-- **Picker:** a searchable, language-grouped drawer mounted in the reader Sidebar — available on every reader route (surah, juz, global-page), not just surah pages — with selected-with-reorder rows, a hard concurrent-display cap communicated in copy (the offline cache holds more than the display limit), and the primary translation badged/disabled when the route has one. The existing primary-translation picker is unchanged. Copy/share of a verse excludes extras.
-
-### Engagement-gated translation prefetch
-
-- `isEngagedReader()` = `qualified || distinctDays >= 2 || totalViews >= 4` over durable localStorage state (`eq:engagement`); translation prefetch additionally requires the **pre-bump** `sourceViews[id] >= 1`. Arabic-only views never count toward translation downloads; an explicit source pick always bypasses the gate. `sessionViews` is diagnostic only, never a disjunct. The legacy per-tab `eq:reader-views` counter migrates with write → read-back → delete ordering (never deleted before confirmed durable read-back). `downloadBytes` carries a full-transfer timeout and byte ceiling.
-
-## Web delivery + pagination
-
-- **Arabic = SSG.** Build-time `node:sqlite` reads uthmani and prerenders reader pages — real HTML for SEO/first paint; no WASM on the critical path.
-- **Translated pages = SSR on Bun.** Production runs the adapter-node server on the **Bun** runtime (a deliberate choice — Bun holds translation-SSR throughput at roughly half Node's resident memory); Node is **build-only** (Arabic prerender reads sqlite via `node:sqlite`, which Bun lacks).
-- **Page geometry is source-agnostic** — it describes Mushaf geometry, not text, so translations reuse it. Global page `1..604`; surah-local page (662 total); juz `1..30`. Internal route targets: `/app/<surah>`, `/app/<surah>/page/<n>`, `/app/page/<globalPage>`, `/app/juz/<n>` — all prerendered for the Arabic source; public URLs carry the `/{ui}/app` prefix (Part 5).
-- **Ayah → page is computed, never stored.** `surahLocalPageForAyah(surah, ayah)` → `{ localPage, globalPage }`. A deep link resolves to its containing local page and scrolls the ayah to a stable centered position (small-screen safe).
-- **Reader loading:** each surah route reads **exactly one bounded local page** (cross-surah guarded). Continuous scroll pulls adjacent local pages on demand via Worker range reads; a ~5-page virtual window bounds the DOM.
+- Arabic-source pages are built from local SQLite without WASM on first paint.
+- Translated-source pages render on Bun; Node remains build-only for Arabic prerender.
+- Public reader paths begin with `/{ui}/app`, where `ui` is `en` or `ar`. Valid legacy
+  `/app/**` requests receive a `307` plus `Cache-Control: no-store` to the matching English UI
+  path; they never render reader HTML or enter disk cache.
+- Route families cover surah, surah-local page, global page, and juz for Arabic and translated
+  sources.
+- Page geometry is source-independent. Ayah-to-page mapping is computed from metadata.
+- Reader loads one bounded local page and virtualizes continuous adjacent-page loading.
 
 ---
 
 # Part 2 — UI i18n
 
-## Stack and source layout
+## Locale and routing
 
-- Paraglide JS v2 (`@inlang/paraglide-js`, pinned) through its Vite plugin, placed **before** `sveltekit()` in `lazyPlugins` (`web/vite.config.ts`). `paraglide.config.js`: `outdir: "./src/lib/paraglide"`, `emitTsDeclarations: true`, `strategy: ["url", "baseLocale"]`. `project.inlang/settings.json` (base `en`, locales `en`/`ar`, message-format plugin over `./messages/{locale}.json` + `./messages/reader/{locale}.json`).
-- Catalogs: `web/messages/{en,ar}.json` + `web/messages/reader/{en,ar}.json` — flat meaning-named keys, identical key/parameter/plural shape across locales. No HTML, Tailwind classes, URLs, icon IDs, or trusted HTML in catalogs; ICU plurals/selects; `Intl` for dates/numbers.
-- Generated `src/lib/paraglide/` is gitignored build artefact. `pnpm i18n:check` (catalog parity check + compile + namespace codegen) runs in `precheck`/`prelint`/`pretest`/`prebuild`.
-- `web/src/lib/i18n/`: `locales.ts` (`UI_LOCALES` registry — `en`/ltr/`en_US`, `ar`/rtl/`ar_SA`; the registry, not the Quran catalogue, drives switchers, sitemap fan-out, hreflang, prerender discovery), `marketing.ts` (`MARKETING_PUBLICATIONS` matrix — only `home` publishes `ar` today; `marketingHref` returns `null` for unpublished pairs), `reader.ts` (`readerHrefFor`/`readerHomeHrefFor` — the **only** allowed reader UI-prefix operation; accepts only a supported `UiLocale` + an origin-relative canonical `/app` href), copy resolvers (`chrome-copy.ts`, `appearance-copy.ts`, `landing-copy.ts`, `reader-copy.ts` with `ReaderUiCopy`), and generated per-namespace barrels in `src/lib/i18n/m/**` (auto-generated by `scripts/gen-message-namespaces.ts`; the global message barrel is banned — `message-barrel-guard.test.ts`). Per-page chunking and the 38-message chrome floor are in "Message chunking" below.
+- Paraglide v2 owns compiled UI copy. Source catalogs live under `web/messages/`; generated
+  `web/src/lib/paraglide/` output is ignored build output.
+- `UI_LOCALES`, not Quran translation catalogue, owns locale routing, direction, switchers,
+  sitemap fan-out, and prerender discovery.
+- Marketing publishes English at `/` and selected Arabic pages under `/ar/`. Publication
+  matrix decides which localized pages exist; unsupported locale/path pairs remain 404.
+- Canonical reader paths use `/en/app/**` and `/ar/app/**`. UI locale changes shell copy and
+  direction only; translation source segments remain unchanged.
+- Arabic-source output is prerendered for both UI locales. Translated-source paths are never
+  prerendered; UI locale creates bounded SSR cache variants.
+- Reader canonicals and sitemap entries use English UI forms. Quran-content hreflang remains
+  about source content, not shell locale.
 
-## Routing and prerendering
+Quran passages always declare their own language and direction. UI shell direction never
+changes Arabic scripture or translation-content semantics.
 
-- `web/src/app.html` carries `<html lang="%lang%" dir="%dir%">`; one composed root-HTML transform replaces both placeholders on **every** document from `UiLocale` (no placeholder may survive an emitted or cached document). Quran passages set their own source language/direction at their text boundary, so global portals and chrome always follow UI locale.
-- `web/src/hooks.ts` reroutes: `deLocalizeUrl()` derives a canonical candidate, then the `(raw localized URL, candidate)` tuple is validated against `MARKETING_PUBLICATIONS` or the complete reader route grammar. Only a valid published tuple reroutes; every other path returns the original pathname, so `/ar/account`, `/de/`, and malformed `/de/app/...` cannot become another route — they 404.
-- `web/src/hooks.server.ts` keeps its security headers, HTML-language substitution, and translated-reader disk caching; `paraglideMiddleware` runs only for allowlisted marketing or localized-reader document requests, and the closure is the sole server-side source of `UiLocale` (passed only to reader copy and the translated-reader cache partition, never to the Rust API). One final response path — normal marketing, localized reader, cache response, or Paraglide redirect — passes `applyHeaders()` exactly once. Legacy `/app/**` requests are validated against the reader grammar and get a `307` + `Cache-Control: no-store` to their `/en/app/**` equivalent (preserving query/fragment); they never render reader HTML or create a disk-cache entry.
-- Public reader grammar (UI locale before `/app`; Quran translation-content segments keep their positions after it):
+## Copy ownership
 
-```text
-/{ui}/app
-/{ui}/app/{surah}
-/{ui}/app/{surah}/page/{localPage}
-/{ui}/app/page/{globalPage}
-/{ui}/app/juz
-/{ui}/app/juz/{juz}
-/{ui}/app/{surah}/t/{contentLang}/{translator}
-/{ui}/app/{surah}/t/{contentLang}/{translator}/page/{localPage}
-/{ui}/app/t/{contentLang}/{translator}/page/{globalPage}
-/{ui}/app/t/{contentLang}/{translator}/juz/{juz}
-```
-
-`ui` is `en` or `ar`; `contentLang`/`translator` remain the immutable translation-source selector — reader UI locale changes no source selection. Route components, loaders, and Rust calls receive the existing source context, not a `UiLocale` route parameter. Query params `?mode=` (verse/reading display mode) and `?more=<id>,<id>` (client-side stacked extras, see Part 1) are client-mirrored state on top of any reader path — not route segments.
-
-- Prerender: Arabic-source output is SSG for both UI locales — `2 × (114 surah roots + 548 extra local pages + 604 global pages + 30 juz) = 2,592` reader documents plus the bounded entry routes. The build-only `ReaderPrerenderLinks` hidden container generates the deterministic discovery set from every Arabic-source `entries()` × `UiLocale` through `readerHrefFor()` (asserted by `reader-prerender-locales.test.ts`). Translated-source paths are **never** prerendered — SSR + 7-day disk cache; `UiLocale` doubles rendered variants, not Quran source variants.
-- One pure server-side `parseReaderRoute(routeId, params)` validates the resolved internal shape, surah slug, page/juz bounds from `QURAN_DATA`, and translation-id presence in the baked catalogue, returning a discriminated union (`home` / Arabic-source / translated-source `{sourceId, kind, index, localPage?}`) or `null`; only the translated variant can make a disk-cache key. It runs before any disk-cache lookup and before rendering, so invalid suffixes cannot probe cache keys or produce a cached error. It neither accepts nor derives `UiLocale`.
-
-### Acceptance cases
-
-| Request | Result |
-|---|---|
-| `/` | prerendered English marketing document, `lang="en" dir="ltr"` |
-| `/ar/` | prerendered Arabic marketing document, `lang="ar" dir="rtl"` |
-| `/ar/about` | 404 (unpublished marketing pair) |
-| `/de/` | 404 |
-| `/en/app/al-fatihah` | prerendered Arabic-source reader, English UI shell |
-| `/ar/app/al-fatihah` | prerendered Arabic-source reader, Arabic RTL UI shell |
-| `/ar/app/al-fatihah/t/en/sahih` | SSR translated reader; Arabic UI shell, English translation-content boundary |
-| `/de/app/...` | 404 |
-| `/app/...` | `307` + `Cache-Control: no-store` to the `/en/app/...` equivalent; no legacy HTML, no cache entry |
-
-## Copy model
-
-- `web/src/lib/config/site.ts` is structural only (site name/domain/URLs, page IDs, canonical paths, navigation membership); copy lives in message catalogs and resolves at the rendering boundary via page-ID/message-key adapters — never imported into a module-level `NAV_LINKS`/`PAGE_META` object, never evaluated in a server-global context. `m[key]` with a string key is banned; only static typed message calls.
-- Shared structural components (`Nav`, `Footer`, `Tweaks`, `Brand`, `Seo`) receive resolved label props from thin marketing/reader wrappers — they never import Paraglide messages directly. Chrome copy resolves **once in the layout** and is passed down. `renderLlmsIndex()` and the top-level `.md`/`.txt` endpoints keep an explicit base-English copy adapter evaluated only at request/render time.
-- Reader components receive the typed `ReaderUiCopy` view model (or call messages only inside the current render/request context). The client derives `UiLocale` from the canonical public reader URL; SSR receives the same value from `paraglideMiddleware`; hydration agrees. Legacy `/app/**` redirects before a reader component is created.
-- **Shell language/direction:** the reader shell carries `lang={UiLocale}` + `dir={uiDirection}`. Quran source boundaries stay explicit — Arabic text keeps `lang="ar" dir="rtl"` with its Quran font; translation text receives its catalogue `lang`/direction, never `UiLocale`. Surah names, ayah text, verse markers, source IDs, translator names, and downloaded Quran metadata are never localized into UI catalogs.
-- Structural data keeps structural IDs: landing/card `{#each}` blocks key on stable IDs, never translated copy.
-
-## SEO and non-HTML representations
-
-- `MarketingSeo` emits per indexable marketing page: localized title/description/Open Graph/Twitter fields + page JSON-LD, a self canonical from `marketingHref(canonicalPath, currentLocale)`, one hreflang alternate per published locale of the page (including self) plus `x-default` to the English publication, and registry-derived `inLanguage` + Open Graph locale. No global `inLanguage: "en"` node survives on Arabic pages.
-- `sitemap.xml/+server.ts` has a separate UI-locale group sourced **only** from `UI_LOCALES × MARKETING_PUBLICATIONS` — never from the Quran translation list, and never advertising an unpublished marketing pair.
-- Reader UI locale is not Quran translation-content language. Reader canonical tags and sitemap entries use the `en` reader form (`/en/app/**`); the Arabic UI form self-identifies its UI shell but canonicalizes to the equivalent English-UI reader URL, and is not an extra Quran-content hreflang alternate or sitemap entry. Quran-content alternates keep mapping Arabic-source and translation-source contexts, all through `readerHrefFor("en", …)`.
-- Localized `.md`/`.txt` representation URLs are not emitted until an endpoint actually serves them (`includeTextVariants={false}` for non-base marketing documents).
-
-## Locale switcher + RTL
-
-- Both Navs render a real locale switcher: `data-sveltekit-reload` on cross-locale links (a full navigation keeps URL, document `lang`/`dir`, SSR locale, and client runtime synchronized), endonym labels with their own `lang`, `aria-current` on the active locale, query/fragment preserved. Marketing alternatives come from `marketingHref()` (unpublished destinations are hidden, never silently switched to English); reader alternatives map the current canonical Quran path through `readerHrefFor(targetUi, …)`, retaining translation-source context.
-- **RTL is full chrome, not just copy:** `dir="rtl"` on marketing documents and the reader shell; logical CSS properties/utilities where direction should mirror (Nav drawer offset, Tweaks, skip link, `margin-inline-start`); a dedicated Arabic UI font stack (`--font-arabic`) separate from Quran typography; Latin product names/URLs/emails/code/numeric IDs isolated with `dir="ltr"` where needed; `lang` on passages that differ from document language; ARIA/title/visible labels localized together; icon-only controls keep accessible names.
-- **Known RTL leftovers:** physical utilities (`ml-auto`, `text-left`) on the landing surah grid and app home; literal `←`/`→` arrows in `ReaderPageNav` that do not mirror; `MarketingSeo`'s hreflang set is hand-listed rather than matrix-derived.
+- Structural config stores ids, URLs, and membership, not rendered copy.
+- Message functions run at render time or inside request-scoped functions, never module-level
+  server-global initialization.
+- Shared Nav, Footer, Tweaks, Brand, and SEO components receive resolved copy via props.
+- Catalog keys are meaning-named and structurally identical across locales; catalogs contain
+  no HTML, classes, URLs, or icon ids.
+- `MARKETING_PUBLICATIONS` gates localized publication. Locale switches are links and preserve
+  query/fragment; there is no locale cookie, storage preference, or Accept-Language override.
 
 ## Message chunking
 
-Per-page download cost is bounded by namespace barrels. Mechanism: `web/scripts/gen-message-namespaces.ts` reads the catalogs, groups keys by an explicit prefix→namespace table (`web/i18n-namespaces.json` — every catalog key claimed exactly once, or generation fails), and emits one barrel per namespace in `src/lib/i18n/m/**` re-exporting individual message modules from `$lib/paraglide/messages/<key>.js`. A namespace barrel imported by exactly one route subtree gets its own chunk instead of being hoisted into a shared one; the global `$lib/paraglide/messages.js` barrel is banned (`message-barrel-guard.test.ts`). Codegen runs inside `pnpm i18n:check` (so `dev`/`build`/`lint`/`test` all regenerate), generated files are committed so type-check works on a cold clone, and the script is idempotent (`--check` mode fails when output is stale).
+`web/scripts/gen-message-namespaces.ts` maps every message key to exactly one namespace using
+`web/i18n-namespaces.json`, then emits committed typed barrels under
+`web/src/lib/i18n/m/`. Unclaimed or multiply claimed keys fail generation.
 
-- **Namespace = surface.** Convention: `chrome_*` (nav/footer/brand/skip/theme + locale switcher), `appearance_*` (Tweaks panel), `landing_*`, one namespace per marketing page (`about_*`, `faq_*`, `contact_*`, `legal_*`), `auth_*`, `account_*`, `reader_*`. Per-page SEO strings live in that page's namespace (`landing_seo_*`), not a global `seo_*` bucket. Two naming decisions: no mass key rename (`tweaks_*`/`surface_*`/`accent_*` map to the `appearance` namespace by explicit rule; `seo_home_*` stays in `landing`), and no eslint rule (the vitest guard is the single deterministic enforcement path, per repo convention).
-- **Resolver policy.** Page copy: call message functions in the component that renders them — no page-level `resolveXCopy()` object (that's what lets Rolldown attribute strings to the route chunk). Shared structural components (`Nav`, `Footer`, `Tweaks`, `Seo`) keep receiving resolved label props and never import Paraglide directly; chrome resolves **once in the layout** and is passed down. Module-level `m.*()` stays banned.
-- **Catalogs stay coarse** — at most two catalog files per locale (`messages/{locale}.json`, `messages/reader/{locale}.json`): the message-format plugin's array `pathPattern` is a one-way merge, and more files multiply a pre-existing round-trip collapse hazard. Organization comes from key prefixes, not files.
-- **No budget guard.** An earlier `audit-i18n-chunks.ts` + `i18n-budgets.json` pair measured per-page message counts in `postbuild` and failed on regressions. Removed deliberately: the numbers moved on every copy change and on non-i18n route growth, so the upkeep (re-seed + justify in the PR) outweighed a regression it never actually caught. Measurements taken while it existed (worst page per surface): chrome floor **38 messages**; `about` 56 msgs / 6.8 KB gz, `faq` 58 / 11.2, `contact` 49 / 5.8, `privacy` 64 / 7.8, `terms` 63 / 7.3, landing 69 / 8.4, reader pages 155 / 7.8 — each page's rise equalled its own namespace size exactly, so no page paid for another's copy. That is the property the barrels give; it is now trusted rather than enforced.
-- **Lazy appearance panel.** `Tweaks` takes `triggerLabel` + `loadCopy: () => Promise<TweaksResolvedCopy>` and dynamically imports panel copy on first open; the reader appearance panel is carved into `reader-settings-copy.ts`. Nothing renders the panel copy until the user opens it.
-- **Every locale still ships to every visitor.** Paraglide 2.23 emits one message module per key with all locales inlined; `experimentalPerLocaleBuild` cannot compose with SvelteKit's `builder.buildApp`, `experimentalStaticLocale` needs N builds and N asset trees, `experimentalMiddlewareLocaleSplitting` is unstable/no client routing, and `locale-modules` output is documented worse for production tree-shaking. Upstream per-locale splitting is open; maintainers deem eager all-locale delivery acceptable below ~10 locales. **Decision: accept locale duplication for now** — namespace chunking is what contains the cost, and the generated-barrel design stays compatible with a future per-locale build (config change, not a refactor). Re-evaluate at four or five locales.
-- **How to add a page:** add `<page>_*` keys to both catalogs; claim the prefix in `i18n-namespaces.json` (an unclaimed key fails generation); `pnpm i18n:check` regenerates the barrel; write `<page>-copy.ts` importing only that barrel.
+- Global `$lib/paraglide/messages.js` imports are banned.
+- Page copy stays in page namespaces; shared chrome resolves once in layout.
+- Appearance/settings panel copy loads lazily when its surface opens.
+- Catalog files stay coarse; prefixes organize chunk ownership.
+- `pnpm i18n:check` runs before check, lint, test, and build.
+- Paraglide currently embeds all locales in each imported message module. Namespace chunking
+  contains cost; revisit per-locale builds when locale count reaches four or five.
 
 ---
 
 # Part 3 — Web auth and cache isolation
 
-- **Client-hydrated everywhere.** Arabic reader and account shells prerender auth-neutral; the four translated reader route families stay auth-neutral SSR. No user state enters build output, the translated HTML disk cache, or Cache Storage.
-- `web/src/lib/auth/`: `auth-client.ts` (the only web API wrapper — credentials + same-origin `/api` base, envelope-decoded errors) and `auth-state.svelte.ts` (`unknown | anonymous | authenticated`, one in-flight session probe, nothing reads storage at module scope during SSR). Bootstrap is single-flight: hydrate after mount with `GET /api/user/v1/get`, fetch CSRF through `POST /api/csrf/v1/generate` (token stays in memory), and the bootstrap completes before every non-exempt unsafe auth request and before navigating to any OAuth `/login` route. `X-EQ-Session-Rotated: 1` responses trigger CSRF refresh, as do login/logout/OAuth/passkey transitions and 2FA changes.
-- Flows: email/password login + registration (registration creates no session; proceeds through login), TOTP continuation (no authenticated session before continuation succeeds), email verification request/confirm, password recovery (`request|verify|reset`, tokens in memory only, uniform account-existence copy), 2FA setup/verify/disable (secret/QR in memory), OAuth google/apple/facebook/github with `/auth/{provider}/success|failure` targets (opaque error codes only; return targets are same-origin, stored in sessionStorage, consumed once), passkeys (login/register/list/remove, challenges in memory, cancellation not reported as server failure), and a prerendered account shell (profile update, session list with server-computed `isCurrent`, 2FA/passkey controls).
-- **Cache isolation on auth transitions:** login/logout/account-switch send an SW message (with `MessageChannel` acknowledgement awaited before new user state renders) deleting `eq-pages-v1`, `eq-data-v1`, and their IDB metadata; OPFS Quran DBs and the offline pack are untouched. The SW refuses to cache any request/response marked `private` or `no-store`. Cookie-bearing or session-setting web documents/`__data.json` never read from / write to the SSR disk cache and receive `Cache-Control: private, no-store`.
-- **Rust side:** `modules/{auth_v1,email_verification_v1,forgot_password_v1,passkey_v1}` + OAuth provider modules; the private API router always replies `Cache-Control: private, no-store` (it cannot infer authentication from `ruxlog.sid` because CSRF generation creates that cookie for anonymous sessions too); the public Quran router keeps its immutable/public policy. `m000004_auth_session_binding` binds each `user_session` audit row to its opaque tower session id — creation writes the binding before success, `cycle_id()` replaces it before returning, binding failure destroys the rotated session and fails closed, logout revokes the audit row + deletes the tower session + clears the binding. Startup reconciliation revokes pre-binding sessions once (a single clean re-authentication boundary), then becomes a near-no-op.
-- **Origins:** one immutable `AllowedOrigins` value is parsed at boot (absolute HTTPS origins, no placeholders/credentials/path/query/fragment; production requires the EasyQuran origin + full consumer list incl. `https://easyquran.fyi`) and shared by `CorsLayer` + `origin_guard` — no per-request env read or parse; missing `AppState` extension rejects (fail-closed).
-- **Production auth config fails closed:** `WEB_AUTH_ENABLED`, `WEB_OAUTH_PROVIDERS`, per-provider credentials + exact HTTPS callback URIs, `FRONTEND_URL`/`OAUTH_ALLOWED_REDIRECT_ORIGINS`, `WEBAUTHN_RP_ID`/`WEBAUTHN_RP_ORIGIN`/`WEBAUTHN_RP_NAME` (no localhost defaults), and a real mail provider with delivery smoke test. Readiness reports provider ready/not-ready without secrets; logs carry opaque user id, provider name, result code, and trace id only — never emails, provider payloads, session ids, verification codes, or recipient addresses.
+- Auth is client-hydrated. Arabic reader/account shells stay auth-neutral; translated SSR
+  output stays auth-neutral. User state never enters build output, disk-cached reader HTML, or
+  shared Cache Storage.
+- `auth-client.ts` is the web API wrapper. `auth-state.svelte.ts` owns
+  `unknown | anonymous | authenticated` and single-flight session bootstrap.
+- CSRF token stays in memory. Unsafe auth requests await bootstrap; session rotation refreshes
+  CSRF state.
+- Password, TOTP, verification, recovery, OAuth, passkey, profile, and session flows share the
+  same private/no-store boundary.
+- Login, logout, and account switch await service-worker acknowledgement while deleting page
+  and data caches. OPFS Quran DBs and offline pack remain.
+- Rust private routes always return `Cache-Control: private, no-store`; public Quran routes
+  keep immutable/public policy.
+- Session audit rows bind to opaque tower session ids. Rotation updates binding before success;
+  binding failure destroys the rotated session. Logout revokes audit and live session state.
+- One immutable `AllowedOrigins` value is parsed at boot and shared by CORS and origin guard.
+  Missing app state rejects.
+- Production auth/provider/mail/WebAuthn configuration fails closed. Logs and readiness expose
+  status without credentials, tokens, email addresses, or session ids.
 
 ---
 
-# Part 4 — Rust ingress, rate limiting, bans, prewarm
+# Part 4 — Rust ingress, rate limiting, bans, and prewarm
 
-## Typed request identities
-
-- `RequestIdentity::{External(IpAddr), InternalService(InternalServiceId)}` resolves **before** rate limiting: external requests require `CF-Connecting-IP` parsed as `IpAddr` (production only), internal Bun SSR requires a constant-time match on server-only `X-EasyQuran-Internal-Token` (generated per deployment, never in a public var/response/log), and missing/invalid tokens never grant internal treatment. `INTERNAL_QURAN_API_TOKEN` is compared with `subtle::ConstantTimeEq`; the web SSR container sends it only to `INTERNAL_QURAN_API_BASE`.
-- `is_production()` (precedence `RUST_ENV → NODE_ENV → APP_ENV`) is shared by settings, the route blocker, and telemetry — the route blocker is **live** in production (it was previously disabled by an APP_ENV-only read). Health never shares content or escalation buckets: `/healthz` is Docker-only outside the blocker and all limiters; `/quran/health/ready` uses its own non-escalating `QURAN_HEALTH_REQUESTS_PER_MINUTE` bucket.
-- `IP_SOURCE` parses strictly (`ConnectInfo` is a production boot error; `CfConnectingIp` is exact PascalCase). **Config location note:** the value ships hardcoded in `docker-compose.yml` (api environment), not in `deploy/.env.example` — the example file documents it in comments, and `deploy/README.md` contains one stale line claiming it ships in `.env.example` (its own Notes section states the compose location correctly).
-- **Trust boundary:** `CfConnectingIp` trusts the header — before production, Traefik/host firewall must restrict public origin ingress to current Cloudflare ranges (`deploy/README.md` owns the range-update procedure and direct-origin negative test; `web/scripts/assert-headers.sh` proves the contract).
-
-## Rate limiting + ban escalation
-
-- Fixed windows: 600/60s general `quran-v1`, 30/60s search (double-limited), 600/min internal SSR, 120/min readiness. The store prunes expired **claims** alongside limits so dedup claims cannot accumulate without bound.
-- **Escalation is default-off** (`QURAN_BAN_ESCALATION_ENABLED=false`) and gated on the ingress contract above. It never touches `on_block` (a synchronous response hook); it runs in `RateLimitMiddleware::call` with resolved identity + store available.
-- One canonical `BanUnit` (IPv4 `/32`, IPv6 `/64`) keys fixed limiting, suspicious history, bans, persistence, and export. A rate window qualifies only when `count == max_requests + 1` **and** the bounded suspicious-4xx counter meets its threshold (closed set: unknown source id, invalid range bounds, unknown Quran route — ordinary search validation/not-found/5xx excluded). Raw volume alone never bans. Temp = 5 qualifying windows/1h → 1h; Long = 20/24h → 7d; active bans return 429 for every request including after fixed-window rollover; an active Temp can later upgrade to Long. Allowlisted CIDRs (`QURAN_BAN_ALLOWLIST`, IPv6 prefixes ≥/64) and non-external identities never enter the state machine. Capacity is bounded (`QURAN_ACTIVE_BAN_MAX` 2,000; `QURAN_ESCALATION_MAX_IDENTITIES` 10,000): at saturation active bans and fixed limiting are preserved, new ban state is declined, and saturation counters increment.
-- Persistence (`m000002_rate_limit_state`): `block_scope TEXT NOT NULL DEFAULT 'Temp'` round-trips snapshot/flush/load/restore; unknown stored scopes fail closed as `Temp` with a warning; flush is **one transaction** (per-row autocommits forbidden) after pruning expired rows; a persistence-operation lock is shared by periodic flush and admin mutations, and the in-memory bucket mutex is never held during SQLite I/O.
-- Operator API `/admin/bans` (admin-ACL gated, `no-store`): paginated `GET` lists active `{banUnit, scope, blockUntilAt}`; `DELETE` takes JSON `{banUnit}` (not path-segment CIDR text) and clears L1 buckets + suspicious history + L2 rows in one transaction (a DB failure leaves L1 intact, so the ban stays enforced and the operation is safe to retry); `GET /admin/bans/export` serves neutral JSON (canonical units, scope, expiry) via a separate read-only `BAN_EXPORT_TOKEN` compared in constant time — never `totp:*`, email, user-id, fixed-rate, or unparseable keys. Traefik/Cloudflare mutation stays outside this repo; the deploy README documents the JSON contract.
-
-## Translation pool + API-demand prewarm
-
-- Moka TinyLFU governs runtime admission; TTL/LRU/byte-bound govern eviction; a lock-free per-id demand side table (`HashMap<TranslationId, AtomicU64>`, pre-populated from the fixed catalogue) increments only on successful `get_or_build` — it lives **outside** `residents` (the byte-bound victim index), so a hit can never create a tombstone or a spin. `enforce_byte_bound` self-heals: victim selection filters on `cache.contains_key` and removes stale `residents` entries, so the prune loop always terminates.
-- Durable signal (`m000003_translation_popularity`): `score` is the value at `updated_at`; flush snapshots atomics, computes `score_now = score * 0.5^((now - updated_at)/HALF_LIFE) + committed_hits` in Rust, and commits one transaction, `fetch_sub`-ing only the snapshotted amount afterwards (counts accrued during the flush survive). `HALF_LIFE = 7 days` (const); decay happens at read (the bundled SQLite has no math functions, and the table is ≤115 rows, so select-all + decay in Rust). The flush runs on every 6th tick of the existing 10s task — no second flush task. It is **API demand across restarts, not reader popularity** (translated pages are SSR behind a 7-day disk cache and warm clients read their local worker DB, so a more popular translation may produce fewer pool hits).
-- Prewarm (`QURAN_DEMAND_COLLECT` on / `QURAN_PREWARM_TRANSLATIONS` 2, `0` = off; collection off forces prewarm off): background spawn after pool construction warms top-N by decayed demand via a private `warm(id)` path that stamps `tick = 0` (so a fresh prewarm never evicts a corpus a real user is reading), increments neither demand nor `lookups`, filters to catalogue membership before truncating to N, and yields while `build_sem` is exhausted. Prewarm must not block or fail boot (Arabic is fail-fast; translations are not).
-- Observability: `PoolStats` carries `prewarmed: Vec<String>` + `top_demand: Vec<(String, f64)>` (cap 10); `hit_rate` is `Option<f64>` serialized `null` when `lookups == 0` (the old misleading `1.0` is gone). `stats()` reads a ranked snapshot from an `RwLock` — it never reads SQLite, and no guard is held across `.await`; the public `/quran/health/ready` body exposes readiness + verse/surah counts + auth provider readiness booleans only (pool byte budgets, hit rates, and demand ranking stay internal). Boot-candidate OTLP counters distinguish real cold builds for the candidate set from prewarm's own builds.
+- `RequestIdentity` resolves before rate limiting. External requests use configured IP source;
+  internal SSR requires constant-time validation of `X-EasyQuran-Internal-Token`.
+- Production trusts `CF-Connecting-IP`; Traefik/firewall must restrict origin ingress to
+  Cloudflare ranges. `deploy/README.md` owns operational procedure.
+- Fixed limits: 600/min general, 30/min search, 600/min internal SSR, 120/min readiness. Search
+  remains under both search and general ceilings.
+- Ban escalation is default-off. Only external canonical IP units with qualifying suspicious
+  4xx history may escalate; raw volume alone never bans. State and capacity are bounded.
+- Ban persistence flushes transactionally. Operator list/delete/export endpoints stay
+  admin/token protected and `no-store`; external proxy mutation remains outside repo.
+- Translation-pool durable score measures API demand across restarts, not reader popularity.
+  Decay occurs in Rust; prewarm is bounded, background-only, and never blocks boot.
+- Public readiness excludes pool budgets, hit rates, and demand ranking.
 
 ---
 
 # Part 5 — Divergences from `my-plan-raw.md`
 
-[`docs/my-plan-raw.md`](./my-plan-raw.md) is owner-authored and read-only; it records intent, not the delivery architecture this repository ships. The seven boundaries below are load-bearing and must not be blurred by an implementation or a later doc edit.
+[`my-plan-raw.md`](./my-plan-raw.md) is read-only owner intent. Shipped architecture wins:
 
-1. **Translated pages are SSR + 7-day disk cache, never SSG.** Prerendering the translated top-level surah route alone is `114 × 115 ≈ 13,110` pages, and the surah shape does not stop there: surah-local pages add `548 × 115 ≈ 63,020`, so **the surah shape alone is ~76,000 routes before juz and global pages** — the 13,110 number understates the cost by roughly six times, so quote the full figure, not just the top-level count. Translated prerender would also need a live API at build time (`quran-translation-page.ts` fetches ranges over HTTP), which Arabic prerender does not — a translated build artifact is not achievable from static input. SEO is served by hreflang alternates (`routes/sitemap.xml/+server.ts:31-42`), not by prerendered HTML. This deliberately diverges from `my-plan-raw.md:19,22`; no `/app/t/**`, `/app/[surah]/t/**`, or `/en/app/...`/`/ar/app/...` public form may be described as SSG or prerendered.
-2. **Translated delivery spans four route families, not surah-only.** One source context flows through surah, surah-local-page, global-page, and juz routes — the same four shapes the sitemap groups with language alternates (`routes/sitemap.xml/+server.ts:62-82`). Reader navigation must preserve translation context via the `surah*For(ctx, …)` family and cannot fall back to Arabic (guarded by `nav-guard.test.ts`). This is the runtime boundary behind the shorter intent in `my-plan-raw.md:19`.
-3. **"SSG-last" holds for Arabic only.** Arabic reader routes are prerendered, so their `__data.json` is a static build artifact served from the CDN / `eq-data-v1` — a real SSG-last tier while the static origin is up. Translated routes have no SSG artifact; their recovery order is local DB → API → matching server data, and is never called "SSG-last".
-4. **The durable pool signal is API demand, not reader popularity.** The Rust translation pool only sees requests that reach the process; translated pages are SSR behind a 7-day disk cache and warm clients read their local worker DB, so pool hits measure **API demand across process restarts** — a more popular translation may produce *fewer* hits once caching works. Moka TinyLFU owns in-process popularity admission; the persisted signal is conceptually an API-demand score but is literally the `score` column (REAL, decayed at read via `score * 0.5^(elapsed / half-life)`) in the `translation_popularity` table (migration `m000003`) — not reader popularity.
-5. **Surah and range routes keep `+page.server.ts`.** SvelteKit resolves `__data.json` before new route props reach the component, so warm navigation still depends on the server load. Surah adjacent-page reads and the post-paint range swap upgrade content *after* paint; neither removes the server-load dependency, and neither does a universal `+page.ts`. Removing it requires a route-architecture change, not a claim that hydration already replaced SSG/SSR.
-6. **Authentication is client-hydrated everywhere.** Arabic reader and account shells are prerendered and auth-neutral; the four translated reader route families remain auth-neutral SSR. User state enters neither the build output, the translated HTML disk cache, nor Cache Storage — no per-user content in any shared cache. **Durable session binding:** the one-time web-auth enablement is a single clean re-authentication boundary — boot reconciliation (`services/auth.rs::reconcile_unbound_sessions`) not only revokes the `user_session` audit rows that pre-date the `auth_session_binding` table, it also enumerates the live tower-session store (`session_store.rs::delete_unbound_auth_sessions`) and forcibly removes the corresponding live AUTH sessions (matched by the `rux_auth` Record key, not a per-id binding lookup, since none exists for pre-binding sessions); anonymous sessions are preserved. This affects only that one cutover — after it, every session is bound and the sweep is a near-no-op on subsequent boots. **Origin sharing:** the single boot-built `AllowedOrigins` (`utils::cors::allowed_origins_from_env`, resolved once at `main.rs:147`) is stored as the `allowed_origins` field of `AppState` (an `Arc`-backed clone shared by reference) and read by `origin_guard` from the `AppState` extension (`req.extensions().get::<AppState>()` in `middlewares/cors.rs`). The load-bearing contract is unchanged — one immutable value built at boot, shared by `CorsLayer` (same `header_values()` list) and the guard, with no per-request env read or parse; a missing `AppState` extension rejects (fail-closed).
-7. **Artifact safety is the executable contract.** Production download specs are reconstructed from baked `{id, sizeBytes, r2Path, sameOriginDeliveryPath}` maps; web runtime metadata comes only from those maps and `translations.json`, and `eq-data-v1` metadata is bounded the same way. Downloads stage into an id-scoped temp file, then validate exact baked size plus content invariants (6,236 contiguous rows, tiling, ayah keys, packaging — content asserts, never hashes) before an IDB `{sourceId, activeFile}` pointer switches atomically and the prior file is removed. A partially written DB can never become active; invalid legacy files stay inactive and trigger normal redownload.
-
----
-
-# Part 6 — Known gaps, follow-ons
-
-**Known gaps / drift:**
-
-- Arabic copy for `about`/`faq`/`contact`/`privacy`/`terms` is localized but awaits fluent review — `MARKETING_PUBLICATIONS` keeps those pairs unpublished, so `/ar/about` and siblings still 404. Auth/account remain English by design (`/ar/account` is specified to 404; reversing that is a product call).
-- English literals remain on the landing surah-grid section (added after the copy migration) and the app-home resume card.
-- RTL leftovers: physical utilities (`ml-auto`, `text-left`), non-mirroring reader arrows, hand-listed `MarketingSeo` hreflang (see Part 2).
-- Paraglide 2.23 ships every locale's strings to every visitor (all locales inlined per message module); accepted while locale count is low — upstream per-locale splitting is open. Costs are contained by namespace barrels (see "Message chunking" in Part 2).
-- `IP_SOURCE=CfConnectingIp` ships hardcoded in `docker-compose.yml`, not in `deploy/.env.example`; one stale line in `deploy/README.md` claims the `.env.example` location (Part 4).
-- The `QURAN_DEMAND_COLLECT` / `QURAN_PREWARM_TRANSLATIONS` switches are parsed in `main.rs` rather than `config/settings.rs` (defaults and semantics as specified — cosmetic deviation).
-
-**Deferred / product decisions:**
-
-- Word-level navigation — reuses ayah page math with a finer in-ayah highlight; word-offset hash grammar undecided. No code yet.
-- Canonical-view / opener / offset-map fixtures are still two private trees (Rust `quran/testdata/view-*.json` vs web `view/__fixtures__/prefix-cuts.json`); only the normalize corpus (`parity.json`) is shared.
-- Mobile client — explicit non-goal in this repo; when scheduled, it must consume the shared normalization/parity contract rather than fork it.
-- Adding UI locales after `en`/`ar` (candidates `ur`, `id`, `fr`) needs capacity review: Arabic-source reader SSG scales linearly by locale, translated-reader SSR HTML cache variants scale by locale.
-- Whether localized `.md`/`.txt` marketing representations are worth maintaining.
-- Translation contributor workflow and review ownership.
+1. Translated pages use SSR plus seven-day disk cache and are never SSG. Their surah and
+   surah-local shapes alone would create about 76,000 routes before juz/global pages.
+2. Translation context spans surah, surah-local page, global page, and juz routes. Navigation
+   may never fall back to Arabic context.
+3. “SSG-last” applies only to Arabic. Translation recovery is local DB → API → matching server
+   data.
+4. Durable translation-pool score measures API demand, not reader popularity.
+5. Surah and range routes retain `+page.server.ts`; post-paint worker upgrades do not remove
+   SvelteKit server-load dependency.
+6. Authentication remains client-hydrated and absent from every shared output/cache.
+7. Production artifact specs come from baked id maps. Staged validation and atomic pointer
+   switching prevent incomplete downloads from becoming active.
 
 ---
 
-## Appendix
+# Part 6 — Known gaps and product decisions
 
-Four genuinely-empty source verses — immutable source data, **not** bugs; do not "fix": `fa.safavi 80:39`, `ku.asan 108:3`, `sq.mehdiu 21:56`, `sq.mehdiu 77:14`. Detail in [`docs/research/translation-empty-verses.md`](./research/translation-empty-verses.md).
+- Arabic marketing copy beyond home awaits fluent review; unpublished pairs remain 404.
+- Landing/app-home English literals and several physical RTL utilities/arrows remain.
+- Paraglide sends all configured locales within imported message modules.
+- `IP_SOURCE` documentation has one deploy README location mismatch.
+- Word-level navigation and shared canonical-view fixtures remain deferred.
+- Future UI locales require SSG and SSR-cache capacity review.
+- Translation contribution/review ownership remains undefined.
+- Mobile is outside this repo; any future client must share normalization fixtures and
+  immutable-source contracts.
+
+Four empty translation verses are valid immutable source data, not bugs: `fa.safavi 80:39`,
+`ku.asan 108:3`, `sq.mehdiu 21:56`, and `sq.mehdiu 77:14`.
