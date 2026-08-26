@@ -138,7 +138,21 @@ pub async fn resend(
     let code = email_verification::Entity::generate_code();
     let code_hash = crate::utils::code_hash::hash_code(&state.secret_key, &code);
     email_verification::Entity::regenerate(pool, user_id, code_hash).await?;
-    if let Err(err) = send_email_verification_code(&state.mailer, &user.email, &code).await {
+
+    // ── DELIVERY: verification-code hand-off ──────────────────────────────────
+    // Same contract as the forgot-password DELIVERY block: this is the single
+    // place the plaintext code leaves the request. Change how a code reaches the
+    // user (SMTP, log file, test fixture…) by editing ONLY this block.
+    // Non-production logs the code and treats delivery as done (no SMTP in dev);
+    // production emails it and fails the request on a transport error. NEVER log
+    // the code on the production branch.
+    if matches!(crate::config::settings::is_production(), Ok(false)) {
+        info!(
+            user_id,
+            verification_code = %code,
+            "DEV delivery: email-verification code (non-production build)"
+        );
+    } else if let Err(err) = send_email_verification_code(&state.mailer, &user.email, &code).await {
         error!(
             user_id,
             error_kind = mail_error_kind(&err),

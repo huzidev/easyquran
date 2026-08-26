@@ -396,18 +396,34 @@ pub async fn register(
             tracing::Span::current().record("user_id", user.id);
             tracing::Span::current().record("result", "success");
 
-            let app_state = state.clone();
-            let user_id = user.id;
-            let email_for_task = email.clone();
-            let code_for_task = code.clone();
-            tokio::spawn(async move {
-                if let Err(err) =
-                    send_email_verification_code(&app_state.mailer, &email_for_task, &code_for_task)
-                        .await
-                {
-                    tracing::error!(user_id, "Failed to send verification email: {}", err);
-                }
-            });
+            // ── DELIVERY: verification-code hand-off ──────────────────────────
+            // Same contract as the other auth DELIVERY blocks: the single place
+            // the plaintext code leaves the request. Non-production logs the code
+            // and skips the (usually absent) SMTP transport; production emails it
+            // in a background task. NEVER log the code on the production branch.
+            if matches!(crate::config::settings::is_production(), Ok(false)) {
+                info!(
+                    user_id = user.id,
+                    verification_code = %code,
+                    "DEV delivery: email-verification code (non-production build)"
+                );
+            } else {
+                let app_state = state.clone();
+                let user_id = user.id;
+                let email_for_task = email.clone();
+                let code_for_task = code.clone();
+                tokio::spawn(async move {
+                    if let Err(err) = send_email_verification_code(
+                        &app_state.mailer,
+                        &email_for_task,
+                        &code_for_task,
+                    )
+                    .await
+                    {
+                        tracing::error!(user_id, "Failed to send verification email: {}", err);
+                    }
+                });
+            }
         }
         RegisterOutcome::DuplicateEmail => {
             // M3: a unique-violation must be answered with the exact success status

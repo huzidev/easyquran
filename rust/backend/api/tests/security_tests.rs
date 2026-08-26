@@ -344,6 +344,12 @@ fn auth_path_logs_contain_no_sensitive_values() {
     // W8f invariant: auth-path logs emit only opaque user id, provider NAME,
     // result, trace id, client_ip — NEVER email, OTP/verification code,
     // recipient address, or subject. Source-level guard against reintroduction.
+    //
+    // Deliberate exception: each auth controller has a commented `── DELIVERY:
+    // …-code hand-off ──` block that logs the plaintext code ONLY on the
+    // !is_production() branch (dev/test has no SMTP). Production keeps the real
+    // transport and never logs the code — the matchers below must stay blind to
+    // those gated `verification_code`/`reset_code` fields.
     let email_verify = include_str!("../src/modules/email_verification_v1/controller.rs");
     let forgot_pw = include_str!("../src/modules/forgot_password_v1/controller.rs");
     let mail_none = include_str!("../src/services/mail/none.rs");

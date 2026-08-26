@@ -274,8 +274,6 @@ pub async fn reset(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // Guards only the handler source — each test's own text must not satisfy
     // its asserts, so the strings they pin appear in the asserts only.
     fn handler_src() -> &'static str {

@@ -1,7 +1,7 @@
 use crate::error::{DbResult, ErrorCode, ErrorResponse};
 use chrono::Utc;
 use ruxlog_types::PaginatedList;
-use sea_orm::{entity::prelude::*, Order, QueryOrder, Set};
+use sea_orm::{entity::prelude::*, Order, QueryOrder, Set, IntoActiveModel};
 
 use super::*;
 
@@ -58,24 +58,28 @@ impl Entity {
     pub async fn regenerate(conn: &DbConn, user_id: i32, code_hash: String) -> DbResult<Model> {
         let now = Utc::now().fixed_offset();
 
-        let verification = ActiveModel {
-            user_id: Set(user_id),
-            code_hash: Set(code_hash.clone()),
-            updated_at: Set(now),
-            ..Default::default()
-        };
-
-        let result = Entity::insert(verification)
-            .on_conflict(
-                sea_orm::sea_query::OnConflict::column(Column::UserId)
-                    .update_columns([Column::CodeHash, Column::UpdatedAt])
-                    .to_owned(),
-            )
-            .exec_with_returning(conn)
+        // Find-then-update-or-insert (mirrors forgot_password::regenerate): the
+        // INSERT .. ON CONFLICT ("user_id") DO UPDATE upsert compiles on SQLite
+        // only with the UNIQUE index (m000006) AND its exec_with_returning cannot
+        // fetch the row on the update path ("Failed to find inserted item"). The
+        // unique index from m000006 guards the insert race this shape would have.
+        let existing = Self::find()
+            .filter(Column::UserId.eq(user_id))
+            .one(conn)
             .await;
 
-        match result {
-            Ok(model) => Ok(model),
+        match existing {
+            Ok(Some(existing_model)) => {
+                let mut active_model: ActiveModel = existing_model.into_active_model();
+                active_model.code_hash = Set(code_hash);
+                active_model.updated_at = Set(now);
+
+                match active_model.update(conn).await {
+                    Ok(model) => Ok(model),
+                    Err(err) => Err(err.into()),
+                }
+            }
+            Ok(None) => Self::create(conn, user_id, code_hash).await,
             Err(err) => Err(err.into()),
         }
     }
