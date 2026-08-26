@@ -38,3 +38,4 @@ DEPLOYMENT.md
 .cache
 .claude/skills
 .agents/skills
+rust/data/
