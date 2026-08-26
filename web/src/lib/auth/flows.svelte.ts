@@ -10,12 +10,13 @@ import {
 } from "$lib/auth/auth-client";
 import {
   ACCOUNT_EXISTS_RESEND,
-  ACCOUNT_EXISTS_RESET,
   CREDENTIAL_FAILURE,
   classifyAuthError,
   GENERIC_TRY_AGAIN,
   isVerifiedOnlyError,
   NETWORK_ERROR,
+  NO_ACCOUNT_EXISTS,
+  RESET_CODE_SENT,
   RESET_SUCCESS,
   TWO_FA_NEXT,
   VERIFY_EMAIL_NEXT,
@@ -500,20 +501,23 @@ export class ForgotPasswordFlow {
           this.genericError = NETWORK_ERROR;
           return false;
         }
+        // The API answers unknown emails with an explicit RecordNotFound (404) —
+        // surface it instead of the generic classifier copy.
+        if (res.status === 404) {
+          this.genericError = NO_ACCOUNT_EXISTS;
+          return false;
+        }
         const c = classifyAuthError(res.status, res.error, FORGOT_REQUEST_FIELDS);
         if (c.kind === "field") {
           this.fieldErrors = c.fieldErrors;
-        } else if (c.kind === "rate-limit") {
-          this.genericError = c.message;
         } else {
-          this.genericError = null;
-          this.successMessage = ACCOUNT_EXISTS_RESET;
+          this.genericError = c.message;
         }
         return false;
       }
       this.step = "verify";
       this.genericError = null;
-      this.successMessage = ACCOUNT_EXISTS_RESET;
+      this.successMessage = RESET_CODE_SENT;
       return true;
     } catch {
       this.genericError = NETWORK_ERROR;

@@ -95,7 +95,7 @@
 {:else if flow.step === "verify"}
   <AuthForm
     heading="Enter your reset code"
-    subheading="We sent an 8-character code to your email if an account exists for it."
+    subheading="We sent a 6-digit code to your email."
     submitLabel="Verify code"
     pending={flow.pending}
     serverError={flow.genericError}
@@ -107,8 +107,10 @@
           id="fp-code"
           name={field.name}
           label="Reset code"
+          type="text"
+          inputmode="numeric"
           autocomplete="one-time-code"
-          maxlength={8}
+          maxlength={6}
           value={field.state.value}
           error={fieldError(field.state.meta.errors) ?? verifyErrors.current.code ?? null}
           oninput={(next) => {

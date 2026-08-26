@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-// CODE_LEN must match the code generator; PASSWORD_MIN must match the auth password floor (desync silently breaks verify / reset).
-const CODE_LEN: u64 = 8;
+// CODE_LEN must match the code generator (6 numeric digits); PASSWORD_MIN must match the auth password floor (desync silently breaks verify / reset).
+const CODE_LEN: u64 = 6;
 const PASSWORD_MIN: u64 = 12;
 const PASSWORD_MAX: u64 = 256;
 

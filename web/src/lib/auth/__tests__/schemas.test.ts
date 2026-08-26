@@ -104,12 +104,20 @@ describe("code schemas", () => {
     expect(errorsFor(totpSchema(copy), { code: "" })).toEqual({ code: copy.codeRequired });
   });
 
-  it("email + reset codes are 8 characters (server CODE_LEN)", () => {
-    for (const schema of [verifyEmailSchema(copy), forgotVerifySchema(copy)]) {
-      expect(errorsFor(schema, { code: "abcd1234" })).toEqual({});
-      expect(errorsFor(schema, { code: "abcd123" })).toEqual({ code: copy.codeLength8 });
-      expect(errorsFor(schema, { code: "" })).toEqual({ code: copy.codeRequired });
-    }
+  it("email-verification codes are 8 characters (server CODE_LEN)", () => {
+    const schema = verifyEmailSchema(copy);
+    expect(errorsFor(schema, { code: "abcd1234" })).toEqual({});
+    expect(errorsFor(schema, { code: "abcd123" })).toEqual({ code: copy.codeLength8 });
+    expect(errorsFor(schema, { code: "" })).toEqual({ code: copy.codeRequired });
+  });
+
+  it("reset codes are exactly 6 digits (server CODE_LEN)", () => {
+    const schema = forgotVerifySchema(copy);
+    expect(errorsFor(schema, { code: "123456" })).toEqual({});
+    expect(errorsFor(schema, { code: "12345" })).toEqual({ code: copy.codeDigits });
+    expect(errorsFor(schema, { code: "12345a" })).toEqual({ code: copy.codeDigits });
+    expect(errorsFor(schema, { code: "1234567" })).toEqual({ code: copy.codeDigits });
+    expect(errorsFor(schema, { code: "" })).toEqual({ code: copy.codeRequired });
   });
 
   it("2FA disable accepts a 6-digit code or a backup code up to 64 chars", () => {

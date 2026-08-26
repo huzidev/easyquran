@@ -23,7 +23,7 @@ const SIX_DIGITS_RE = /^[0-9]{6}$/;
 // Server bounds: PASSWORD_MIN/PASSWORD_MAX in auth_v1 + forgot_password_v1 validators.
 export const PASSWORD_MIN = 12;
 export const PASSWORD_MAX = 256;
-// Server bound: CODE_LEN in email_verification_v1 + forgot_password_v1 validators.
+// Server bound: CODE_LEN in email_verification_v1 (8-char alphanumeric).
 export const EMAIL_CODE_LEN = 8;
 // Server bounds: V1TwoFADisablePayload.code length(min = 6, max = 64) — 6-digit TOTP or a backup code.
 const BACKUP_CODE_MIN = 6;
@@ -66,6 +66,17 @@ function emailCodeSchema(copy: AuthValidationCopy) {
   );
 }
 
+// Server bound: CODE_LEN in forgot_password_v1 (6 numeric digits — an OTP-style
+// reset code, distinct from the longer email-verification code).
+function resetCodeSchema(copy: AuthValidationCopy) {
+  return pipe(
+    string(),
+    trim(),
+    nonEmpty(copy.codeRequired),
+    regex(SIX_DIGITS_RE, copy.codeDigits),
+  );
+}
+
 export function loginSchema(copy: AuthValidationCopy = getAuthValidationCopy()) {
   return object({ email: emailSchema(copy), password: passwordSchema(copy) });
 }
@@ -98,7 +109,7 @@ export function forgotRequestSchema(copy: AuthValidationCopy = getAuthValidation
 }
 
 export function forgotVerifySchema(copy: AuthValidationCopy = getAuthValidationCopy()) {
-  return object({ code: emailCodeSchema(copy) });
+  return object({ code: resetCodeSchema(copy) });
 }
 
 export function resetPasswordSchema(copy: AuthValidationCopy = getAuthValidationCopy()) {

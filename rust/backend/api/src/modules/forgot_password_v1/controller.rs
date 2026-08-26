@@ -11,7 +11,7 @@ use crate::{
     extractors::ValidatedJson,
     services::{
         abuse_limiter,
-        mail::{mail_error_kind, mail_error_to_response, send_forgot_password_email, MailError},
+        mail::{mail_error_kind, mail_error_to_response, send_forgot_password_email},
     },
     AppState,
 };
@@ -80,24 +80,10 @@ mod reset_token {
     }
 }
 
-/// Shared by every `generate` exit (unknown email, in-delay, mail throttled, sent) so the response leaks no account existence (SC-006); do not diverge them.
-pub(crate) fn uniform_success_response() -> (StatusCode, Json<serde_json::Value>) {
-    (
-        StatusCode::OK,
-        Json(json!({
-            "message": "If an account exists for that email, a password reset link has been sent.",
-        })),
-    )
-}
-
-/// Fixed input for the dummy Argon2 hash on the unknown-email branch; constant length keeps per-request CPU cost fixed (not dead — see equalize_unknown_email_work).
-const DUMMY_HASH_PASSWORD: &str = "timing-equalization-dummy";
-
-/// Closes the timing oracle between `generate`'s branches: the unknown-email path runs this Argon2id hash to match the known-email path's CPU cost (result discarded by caller).
-fn equalize_unknown_email_work() -> String {
-    password_auth::generate_hash(DUMMY_HASH_PASSWORD)
-}
-
+/// 2026-08-26 product decision: accurate feedback over the old SC-006
+/// anti-enumeration mask. Unknown emails answer with an explicit
+/// RecordNotFound; successful sends confirm delivery. The abuse limiter above
+/// remains the brute-force brake on the now-honest oracle.
 #[debug_handler]
 #[instrument(skip(state, payload), fields(client_ip = %secure_ip))]
 pub async fn generate(
@@ -117,18 +103,12 @@ pub async fn generate(
     }
 
     let pool = &state.sea_db;
-    // Unknown email: return the same response as a known one (SC-006); never 404.
     let user = match user::Entity::find_by_email(pool, payload.email.clone()).await {
         Ok(Some(user)) => user,
         Ok(None) => {
-            warn!("Forgot password requested for non-existent email; returning uniform response");
-            let _ = tokio::task::spawn_blocking(equalize_unknown_email_work)
-                .await
-                .map_err(|e| {
-                    error!("Dummy equalization hash task panicked: {e}");
-                    ErrorResponse::new(ErrorCode::InternalServerError)
-                })?;
-            return Ok(uniform_success_response());
+            warn!("Forgot password requested for non-existent email");
+            return Err(ErrorResponse::new(ErrorCode::RecordNotFound)
+                .with_message("No account exists for that email"));
         }
         Err(err) => {
             error!("Database error finding user: {}", err);
@@ -140,9 +120,11 @@ pub async fn generate(
     match forgot_password::Entity::find_query(pool, Some(user_id), None, None).await {
         Ok(verification) => {
             if verification.is_in_delay() {
-                // Delay stays enforced (no new code, no email) but the response must stay uniform — a distinct status here would confirm the account exists.
+                // Delay stays enforced (no new code, no email) and the user is told why.
                 warn!(user_id, "Forgot password in delay period");
-                return Ok(uniform_success_response());
+                return Err(ErrorResponse::new(ErrorCode::TooManyAttempts).with_message(
+                    "A reset code was already sent. Please wait a minute before requesting another.",
+                ));
             }
         }
         Err(err) => {
@@ -160,16 +142,26 @@ pub async fn generate(
         error!(user_id, "Failed to store forgot-password code: {}", err);
         return Err(err);
     }
-    if let Err(err) = send_forgot_password_email(&state.mailer, &payload.email, &code).await {
-        // The per-recipient transactional cap must not turn into an account-existence oracle — throttling returns the uniform envelope too.
-        if matches!(err, MailError::Throttled { .. }) {
-            warn!(
-                user_id,
-                error_kind = mail_error_kind(&err),
-                "Forgot password email throttled; returning uniform response"
-            );
-            return Ok(uniform_success_response());
-        }
+
+    // ── DELIVERY: reset-code hand-off ─────────────────────────────────────────
+    // This is the single place the plaintext reset code leaves the request. To
+    // change how a code reaches the user (SMTP, log file, test-fixture echo…),
+    // edit ONLY this block — generation, hashing, and storage above stay as-is.
+    //
+    // Non-production: there is usually no SMTP server in dev, so the code is
+    // written to the API log (`just dev` console) and delivery is treated as
+    // done. Production: email it and fail the request on a transport error.
+    // NEVER log the code on the production branch.
+    if matches!(crate::config::settings::is_production(), Ok(false)) {
+        // No email field: PII guard in tests/security_tests.rs forbids logging
+        // the recovery address here. user_id identifies the row for lookup.
+        info!(
+            user_id,
+            reset_code = %code,
+            "DEV delivery: forgot-password reset code (non-production build)"
+        );
+    } else if let Err(err) = send_forgot_password_email(&state.mailer, &payload.email, &code).await
+    {
         error!(
             user_id,
             error_kind = mail_error_kind(&err),
@@ -178,8 +170,13 @@ pub async fn generate(
         return Err(mail_error_to_response(&err));
     }
 
-    info!(user_id, "Recovery email sent");
-    Ok(uniform_success_response())
+    info!(user_id, "Recovery code issued");
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "message": "A password reset code has been sent to your email.",
+        })),
+    ))
 }
 
 #[debug_handler]
@@ -279,115 +276,56 @@ pub async fn reset(
 mod tests {
     use super::*;
 
-    #[test]
-    fn generate_exits_stay_on_the_uniform_envelope() {
-        // Guard only the handler source — this test's own text must not satisfy the asserts.
+    // Guards only the handler source — each test's own text must not satisfy
+    // its asserts, so the strings they pin appear in the asserts only.
+    fn handler_src() -> &'static str {
         let src = include_str!("controller.rs");
         let (code, _) = src
             .split_once("#[cfg(test)]")
             .expect("tests module present");
+        code
+    }
+
+    #[test]
+    fn unknown_email_answers_explicit_record_not_found() {
+        let code = handler_src();
         assert!(
-            !code.contains("ErrorCode::TooManyAttempts"),
-            "generate must not answer with a direct 429 — the in-delay branch and every other exit share the uniform envelope; IP-scoped throttling stays in the abuse limiter"
+            code.contains("ErrorCode::RecordNotFound"),
+            "the unknown-email branch must answer RecordNotFound (explicit contract, 2026-08-26)"
         );
         assert!(
-            code.contains("MailError::Throttled"),
-            "a Throttled send must fall back to the uniform envelope or the transactional mail cap becomes an account-existence oracle"
+            code.contains("No account exists for that email"),
+            "the not-found message must stay user-readable and stable — the web flow matches on status 404"
         );
     }
 
     #[test]
-    fn uniform_success_response_is_stable_and_non_leaking() {
-        let (status_known, body_known) = uniform_success_response();
-        let (status_unknown, body_unknown) = uniform_success_response();
-
-        assert_eq!(status_known, status_unknown);
-        assert_eq!(status_known, StatusCode::OK);
-
-        let known = serde_json::to_value(&*body_known).unwrap();
-        let unknown = serde_json::to_value(&*body_unknown).unwrap();
-        assert_eq!(known, unknown);
-
-        let msg = known["message"].as_str().unwrap().to_lowercase();
+    fn dev_reset_code_log_is_gated_off_in_production() {
+        let code = handler_src();
         assert!(
-            msg.contains("if an account exists"),
-            "uniform message must be conditional, got: {msg}"
+            code.contains("is_production()"),
+            "the dev-only reset-code log must be gated on !is_production() so production NEVER logs the plaintext code"
         );
+        let delivery_block = code
+            .split("DELIVERY: reset-code hand-off")
+            .nth(1)
+            .expect("delivery block marker present");
         assert!(
-            !msg.contains("doesn't exist") && !msg.contains("does not exist"),
-            "uniform message must not leak non-existence, got: {msg}"
-        );
-        assert!(
-            !msg.contains("sent successfully"),
-            "uniform message must not confirm a send, got: {msg}"
+            delivery_block.contains("is_production()"),
+            "the is_production() gate must sit inside the delivery block, not elsewhere in the file"
         );
     }
 
     #[test]
-    fn uniform_response_differs_from_old_record_not_found_leak() {
-        let (status, body) = uniform_success_response();
-        let leak =
-            ErrorResponse::new(ErrorCode::RecordNotFound).with_message("Email doesn't exist");
-
-        assert_ne!(status, StatusCode::NOT_FOUND);
-        let success = serde_json::to_value(&*body).unwrap();
-        let leak_body = serde_json::to_value(&leak).unwrap_or(serde_json::Value::Null);
-        assert_ne!(success, leak_body);
-    }
-
-    #[test]
-    fn equalize_unknown_email_work_runs_real_argon2() {
-        let hash = equalize_unknown_email_work();
-
+    fn success_envelope_confirms_the_send() {
+        let code = handler_src();
         assert!(
-            hash.starts_with("$argon2"),
-            "equalize_unknown_email_work must produce an Argon2 PHC string, got: {hash}"
+            code.contains("A password reset code has been sent to your email"),
+            "success must be affirmative now that existence is explicit — no 'if an account exists' conditional"
         );
-        assert!(!hash.is_empty());
-    }
-
-    #[test]
-    fn dummy_hash_uses_constant_cost() {
-        let a = equalize_unknown_email_work();
-        let b = equalize_unknown_email_work();
         assert!(
-            a.starts_with("$argon2id$") && b.starts_with("$argon2id$"),
-            "dummy hash must be Argon2id PHC strings"
+            !code.contains("if an account exists"),
+            "the old uniform conditional copy must not come back"
         );
-        let params_a = a
-            .split('$')
-            .nth(3)
-            .expect("PHC string has a params segment");
-        let params_b = b
-            .split('$')
-            .nth(3)
-            .expect("PHC string has a params segment");
-        assert_eq!(
-            params_a, params_b,
-            "Argon2 cost params (m/t/p) must be constant so per-request CPU cost is fixed"
-        );
-        assert_ne!(
-            a, b,
-            "two Argon2id hashes must differ due to the random salt"
-        );
-    }
-
-    #[test]
-    fn uniform_response_unaffected_by_equalization_work() {
-        let _ = equalize_unknown_email_work(); // result dropped, as in handler
-        let (status, body) = uniform_success_response();
-
-        assert_eq!(status, StatusCode::OK);
-        let v = serde_json::to_value(&*body).unwrap();
-        let body_str = v.to_string();
-        assert!(
-            !body_str.contains("$argon2"),
-            "equalization hash must not leak into the uniform response body"
-        );
-        assert_eq!(v.as_object().unwrap().len(), 1);
-        assert!(v["message"]
-            .as_str()
-            .unwrap()
-            .contains("If an account exists"));
     }
 }

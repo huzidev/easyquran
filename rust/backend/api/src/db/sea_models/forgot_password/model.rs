@@ -1,5 +1,5 @@
 use chrono::{Duration, Utc};
-use rand::{distr::Alphanumeric, Rng};
+use rand::Rng;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -36,12 +36,10 @@ impl Entity {
     pub const DELAY_TIME: Duration = Duration::minutes(1);
     pub const EXPIRY_TIME: Duration = Duration::hours(3);
 
+    /// 6 numeric digits (OTP-style). Keep in sync with CODE_LEN in
+    /// modules/forgot_password_v1/validator.rs and the web reset-code schema.
     pub fn generate_code() -> String {
-        rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(8)
-            .map(char::from)
-            .collect()
+        format!("{:06}", rand::rng().random_range(0..1_000_000u32))
     }
 }
 

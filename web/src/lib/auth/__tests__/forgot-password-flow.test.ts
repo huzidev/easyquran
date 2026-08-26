@@ -48,34 +48,34 @@ function storageProbe() {
   return { readKeys };
 }
 
-describe("ForgotPasswordFlow request (uniform account-existence copy)", () => {
-  it("200 -> successMessage copy (green), genericError clear, step verify", async () => {
+describe("ForgotPasswordFlow request (explicit account-existence contract)", () => {
+  it("200 -> reset-code-sent copy (green), genericError clear, step verify", async () => {
     const client = mockClient();
     const state = mockState();
-    client.unsafeRequest.mockResolvedValueOnce(ok({ message: "If an account exists..." }));
+    client.unsafeRequest.mockResolvedValueOnce(ok({ message: "A password reset code..." }));
     const flow = createForgotPasswordFlow({ client, state });
-    flow.email = "maybe@eq.test";
+    flow.email = "real@eq.test";
     const res = await flow.request();
     expect(res).toBe(true);
     expect(flow.step).toBe("verify");
-    expect(flow.successMessage).toMatch(/account exists/i);
+    expect(flow.successMessage).toMatch(/reset code/i);
     expect(flow.genericError).toBeNull();
   });
 
-  it("masquerade failure (404) -> account-existence copy surfaces as successMessage (green), not serverError", async () => {
+  it("unknown email (404) -> no-account error, stays on request step", async () => {
     const client = mockClient();
     const state = mockState();
-    client.unsafeRequest.mockResolvedValueOnce(err(404));
+    client.unsafeRequest.mockResolvedValueOnce(err(404, { type: "DB_002" }));
     const flow = createForgotPasswordFlow({ client, state });
     flow.email = "no-such-account@eq.test";
     const res = await flow.request();
     expect(res).toBe(false);
     expect(flow.step).toBe("request");
-    expect(flow.successMessage).toMatch(/account exists/i);
-    expect(flow.genericError).toBeNull();
+    expect(flow.genericError).toBe("No account exists for that email.");
+    expect(flow.successMessage).toBeNull();
   });
 
-  it("429 rate-limit on request -> rate-limit message (does not masquerade as account-exists)", async () => {
+  it("429 rate-limit on request -> rate-limit message", async () => {
     const client = mockClient();
     const state = mockState();
     client.unsafeRequest.mockResolvedValueOnce(err(429, { retry_after: 60 }));
@@ -115,7 +115,7 @@ describe("ForgotPasswordFlow verify -> reset token in MEMORY only", () => {
     const probe = storageProbe();
     const flow = createForgotPasswordFlow({ client, state });
     flow.email = "x@eq.test";
-    flow.code = "12345678";
+    flow.code = "123456";
     flow.password = "new-strong-password";
     flow.confirmPassword = "new-strong-password";
     await flow.request();

@@ -1,11 +1,12 @@
 import type { AuthErrorEnvelope } from "$lib/auth/auth-client";
 import {
-  ACCOUNT_EXISTS_RESET,
   CREDENTIAL_FAILURE,
   classifyAuthError,
   extractFieldErrors,
   isRateLimited,
   isTransportFailure,
+  NO_ACCOUNT_EXISTS,
+  RESET_CODE_SENT,
   VERIFY_EMAIL_NEXT,
 } from "$lib/auth/auth-copy";
 import { describe, expect, it } from "vite-plus/test";
@@ -120,7 +121,8 @@ describe("classifyAuthError", () => {
     expect(c.kind).toBe("server");
   });
 
-  it("forgot-password style: 200 path uses uniform account-exists copy (flow concern, classifier pass-through)", () => {
-    expect(ACCOUNT_EXISTS_RESET).toMatch(/account exists/i);
+  it("forgot-password copy: affirmative send + explicit no-account (flow concern, classifier pass-through)", () => {
+    expect(RESET_CODE_SENT).toMatch(/reset code/i);
+    expect(NO_ACCOUNT_EXISTS).toMatch(/no account exists/i);
   });
 });
