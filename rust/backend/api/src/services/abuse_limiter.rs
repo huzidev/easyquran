@@ -36,6 +36,17 @@ pub async fn limiter(
     key_prefix: &str,
     config: AbuseLimiterConfig,
 ) -> Result<(), ErrorResponse> {
+    // ── DEV: auth throttling off ────────────────────────────────────────────
+    // Non-production RUNTIME skips the per-account/per-IP throttle entirely so
+    // auth flows can be exercised repeatedly while testing — a tripped block
+    // window otherwise waits out up to a full hour ("Too many attempts. Try
+    // again in N seconds."). cfg!(test) keeps the real limiter under `cargo
+    // test` (bucket-separation tests drive this fn directly); production keeps
+    // the fail-closed limiter untouched. Remove this gate when dev needs
+    // realistic limits again.
+    if !cfg!(test) && matches!(crate::config::settings::is_production(), Ok(false)) {
+        return Ok(());
+    }
     let res = rux_request_gate::check(store, &TelemetryHooks, key_prefix, config).await;
     map_limiter_result(res)
 }
